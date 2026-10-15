@@ -1,0 +1,1948 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>WS下载器</title>
+    <style>
+      :root {
+        font-family:
+          Inter, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+        color: #172c29;
+        background: #f5f7f6;
+        font-synthesis: none;
+        --green: #167d69;
+        --muted: #6c7c77;
+        --line: #e0e8e3;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+      }
+      button,
+      input {
+        font: inherit;
+      }
+      button {
+        cursor: pointer;
+      }
+      button:disabled {
+        cursor: not-allowed;
+        opacity: 0.46;
+      }
+      button:focus-visible,
+      input:focus-visible,
+      summary:focus-visible {
+        outline: 3px solid #9ddbc9;
+        outline-offset: 3px;
+      }
+      header {
+        height: 88px;
+        background: white;
+        border-bottom: 1px solid var(--line);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 max(32px, calc((100vw - 1320px) / 2));
+        gap: 20px;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .logo {
+        width: 40px;
+        height: 40px;
+        display: grid;
+        place-items: center;
+        color: white;
+        background: var(--green);
+        border-radius: 12px;
+      }
+      .brand strong {
+        font-size: 21px;
+        letter-spacing: -0.5px;
+      }
+      .brand small {
+        display: block;
+        color: var(--muted);
+        font-size: 11px;
+        margin-top: 2px;
+        letter-spacing: 1.8px;
+      }
+      .badge {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        font-size: 12px;
+        color: #497467;
+        border: 1px solid #cfe5da;
+        padding: 8px 12px;
+        border-radius: 24px;
+        background: #f1faf5;
+      }
+      .badge i {
+        height: 6px;
+        width: 6px;
+        background: #35a775;
+        border-radius: 50%;
+      }
+      main {
+        max-width: 1384px;
+        margin: auto;
+        padding: 38px 32px 100px;
+      }
+      .intro {
+        margin-bottom: 28px;
+        display: flex;
+        align-items: end;
+        justify-content: space-between;
+        gap: 16px;
+      }
+      h1 {
+        font-size: 28px;
+        letter-spacing: -1px;
+        margin: 0 0 10px;
+        font-weight: 650;
+      }
+      .subtitle {
+        margin: 0;
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.7;
+      }
+      .intro-note {
+        font-size: 12px;
+        color: var(--muted);
+        white-space: nowrap;
+      }
+      .layout {
+        display: grid;
+        grid-template-columns: 310px minmax(0, 1fr);
+        gap: 24px;
+        align-items: start;
+      }
+      .card {
+        background: white;
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        overflow: hidden;
+      }
+      .side {
+        padding: 25px;
+      }
+      .section-label {
+        font-size: 12px;
+        font-weight: 650;
+        letter-spacing: 1px;
+        color: var(--muted);
+        margin: 0 0 22px;
+      }
+      .step-title {
+        display: flex;
+        gap: 9px;
+        align-items: center;
+        margin: 0 0 20px;
+        font-size: 15px;
+        font-weight: 650;
+      }
+      .step {
+        font-size: 11px;
+        border: 1px solid #cbded4;
+        color: var(--green);
+        border-radius: 50%;
+        width: 23px;
+        height: 23px;
+        display: grid;
+        place-items: center;
+      }
+      label.field {
+        display: block;
+        font-size: 12px;
+        font-weight: 600;
+        margin-bottom: 17px;
+      }
+      .field input {
+        display: block;
+        width: 100%;
+        border: 1px solid #d7e1db;
+        border-radius: 8px;
+        background: #fcfdfc;
+        padding: 11px 12px;
+        margin-top: 8px;
+        font-size: 12px;
+        color: #263e35;
+      }
+      .field input::placeholder {
+        color: #98a69f;
+      }
+      .primary,
+      .secondary,
+      .quiet {
+        border-radius: 8px;
+        padding: 11px 16px;
+        font-size: 13px;
+        font-weight: 600;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+      }
+      .primary {
+        background: var(--green);
+        color: white;
+        border: 1px solid var(--green);
+      }
+      .primary:hover:not(:disabled) {
+        background: #106553;
+      }
+      .secondary {
+        background: white;
+        border: 1px solid #d5e1d9;
+        color: #2f5144;
+      }
+      .secondary:hover:not(:disabled) {
+        background: #f3f8f5;
+      }
+      .quiet {
+        background: transparent;
+        border: 1px solid transparent;
+        color: var(--muted);
+      }
+      .wide {
+        width: 100%;
+      }
+      .separator {
+        height: 1px;
+        background: var(--line);
+        margin: 25px 0;
+      }
+      .destination {
+        background: #f7faf8;
+        border: 1px dashed #cbded2;
+        border-radius: 10px;
+        padding: 18px 13px;
+        text-align: center;
+      }
+      .destination svg {
+        color: #80a293;
+        margin-bottom: 9px;
+      }
+      .destination strong {
+        display: block;
+        font-size: 13px;
+        margin-bottom: 6px;
+        overflow-wrap: anywhere;
+      }
+      .destination p {
+        font-size: 11px;
+        color: var(--muted);
+        line-height: 1.7;
+        margin: 0 0 14px;
+      }
+      .check {
+        display: flex;
+        gap: 9px;
+        align-items: center;
+        font-size: 12px;
+        color: #5d7167;
+        margin-top: 16px;
+        line-height: 1.6;
+      }
+      input[type="checkbox"] {
+        accent-color: var(--green);
+        width: 15px;
+        height: 15px;
+        flex-shrink: 0;
+      }
+      .side details {
+        font-size: 12px;
+        color: var(--muted);
+        margin-top: 21px;
+      }
+      .side summary {
+        cursor: pointer;
+        padding: 5px 0;
+      }
+      .side details .field {
+        margin-top: 14px;
+      }
+      .side-note {
+        font-size: 11px;
+        line-height: 1.8;
+        color: #91a198;
+        margin: 21px 0 0;
+      }
+      .workspace {
+        min-height: 540px;
+      }
+      .workspace-head {
+        padding: 24px 26px 19px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: 1px solid var(--line);
+        gap: 12px;
+      }
+      .workspace-head h2 {
+        font-size: 16px;
+        margin: 0 0 6px;
+        font-weight: 650;
+      }
+      .workspace-head p {
+        font-size: 12px;
+        color: var(--muted);
+        margin: 0;
+      }
+      .pill {
+        font-size: 11px;
+        color: var(--green);
+        background: #eef7f1;
+        padding: 6px 10px;
+        border-radius: 6px;
+        white-space: nowrap;
+      }
+      .stats {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 16px;
+        padding: 22px 26px;
+        background: #fcfdfc;
+        border-bottom: 1px solid var(--line);
+      }
+      .stat-label {
+        font-size: 11px;
+        color: var(--muted);
+        margin-bottom: 9px;
+      }
+      .stat-value {
+        font-size: 23px;
+        letter-spacing: -0.6px;
+        font-weight: 600;
+      }
+      .stat-value small {
+        font-size: 12px;
+        color: #98a39d;
+        font-weight: 400;
+        margin-left: 5px;
+      }
+      .toolbar {
+        padding: 15px 24px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        border-bottom: 1px solid var(--line);
+      }
+      .toolbar label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 12px;
+        color: #667b70;
+      }
+      .search {
+        font-size: 12px;
+        width: 200px;
+        padding: 8px 11px;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        background: #fafcfb;
+      }
+      .empty {
+        padding: 66px 25px 74px;
+        text-align: center;
+        color: #87998f;
+      }
+      .empty-icon {
+        margin: 0 auto 19px;
+        display: grid;
+        place-items: center;
+        width: 65px;
+        height: 65px;
+        border: 1px solid #dce9e0;
+        background: #f3f8f4;
+        border-radius: 18px;
+        color: #7ca58c;
+      }
+      .empty h3 {
+        color: #486454;
+        font-size: 15px;
+        font-weight: 550;
+        margin: 0 0 10px;
+      }
+      .empty p {
+        font-size: 12px;
+        line-height: 1.9;
+        margin: 0;
+      }
+      .file-scroll {
+        max-height: 470px;
+        overflow: auto;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        table-layout: fixed;
+      }
+      th {
+        text-align: left;
+        font-weight: 400;
+        color: #91a097;
+        font-size: 11px;
+        padding: 12px 15px;
+        background: #fbfcfb;
+        position: sticky;
+        top: 0;
+      }
+      td {
+        padding: 13px 15px;
+        border-top: 1px solid #f0f3f1;
+        font-size: 12px;
+        color: #526c5c;
+      }
+      th:first-child,
+      td:first-child {
+        width: 45px;
+        padding-left: 25px;
+      }
+      th:nth-child(3) {
+        width: 100px;
+      }
+      th:last-child {
+        width: 115px;
+      }
+      td .filename {
+        display: flex;
+        gap: 9px;
+        align-items: center;
+        min-width: 0;
+        color: #274737;
+      }
+      .filename svg {
+        flex-shrink: 0;
+        color: #89a293;
+      }
+      .filename span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .file-status {
+        color: #8a9b90;
+        font-size: 11px;
+      }
+      .file-status.done {
+        color: var(--green);
+      }
+      .status-panel {
+        margin-top: 19px;
+        padding: 22px 25px;
+      }
+      .status-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+      .status-title {
+        font-size: 13px;
+        font-weight: 600;
+        margin: 0;
+      }
+      .status-title.error {
+        color: #b04a38;
+      }
+      .status-caption {
+        font-size: 11px;
+        color: var(--muted);
+        margin: 8px 0 0;
+        line-height: 1.8;
+        overflow-wrap: anywhere;
+      }
+      .progress {
+        height: 6px;
+        border-radius: 9px;
+        background: #eaf0ec;
+        margin: 18px 0 10px;
+        overflow: hidden;
+      }
+      .progress div {
+        height: 100%;
+        width: 0;
+        background: var(--green);
+        transition: width 0.2s;
+      }
+      .progress-meta {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        font-size: 11px;
+        color: #90a097;
+      }
+      .action-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 15px;
+        margin-top: 22px;
+      }
+      .action-row .hint {
+        font-size: 11px;
+        line-height: 1.8;
+        color: var(--muted);
+      }
+      .action-buttons {
+        display: flex;
+        gap: 8px;
+        flex-shrink: 0;
+      }
+      .log {
+        margin-top: 15px;
+        font-size: 11px;
+        color: #7e8f83;
+        line-height: 1.9;
+        max-height: 110px;
+        overflow: auto;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      .notice {
+        margin-bottom: 20px;
+        padding: 12px 16px;
+        border: 1px solid #ead9b1;
+        background: #fff9eb;
+        color: #82652f;
+        border-radius: 9px;
+        font-size: 12px;
+        line-height: 1.8;
+      }
+      .notice:empty {
+        display: none;
+      }
+      footer {
+        max-width: 1320px;
+        margin: 0 auto;
+        padding: 0 32px 28px;
+        display: flex;
+        justify-content: space-between;
+        color: #9aaba0;
+        font-size: 11px;
+      }
+      [hidden] {
+        display: none !important;
+      }
+      @media (max-width: 900px) {
+        .layout {
+          grid-template-columns: 260px minmax(0, 1fr);
+          gap: 16px;
+        }
+        main {
+          padding: 28px 20px 70px;
+        }
+        .side {
+          padding: 20px;
+        }
+        header {
+          padding: 0 22px;
+        }
+        .workspace-head,
+        .stats {
+          padding-left: 20px;
+          padding-right: 20px;
+        }
+        .toolbar {
+          padding-left: 16px;
+          padding-right: 16px;
+        }
+        .intro-note {
+          display: none;
+        }
+        th:nth-child(3) {
+          width: 80px;
+        }
+        th:last-child {
+          width: 85px;
+        }
+        .action-row {
+          align-items: start;
+          flex-direction: column;
+        }
+        .action-buttons {
+          width: 100%;
+          justify-content: flex-end;
+        }
+      }
+      @media (max-width: 660px) {
+        header {
+          height: 73px;
+        }
+        .badge {
+          font-size: 10px;
+          padding: 7px 9px;
+        }
+        .layout {
+          grid-template-columns: 1fr;
+        }
+        h1 {
+          font-size: 25px;
+        }
+        .side {
+          padding: 22px;
+        }
+        .workspace {
+          min-height: 400px;
+        }
+        .stats {
+          gap: 8px;
+        }
+        .stat-value {
+          font-size: 20px;
+        }
+        .workspace-head {
+          padding: 20px;
+        }
+        .search {
+          width: 140px;
+        }
+        .empty {
+          padding: 40px 20px;
+        }
+        .action-buttons .primary {
+          flex: 1;
+        }
+        footer {
+          padding: 0 20px 22px;
+        }
+        .intro {
+          margin-bottom: 22px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="brand">
+        <div class="logo">
+          <svg
+            width="23"
+            height="23"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.7"
+          >
+            <path d="M12 3v12m-5-5 5 5 5-5M4 16v4h16v-4" />
+          </svg>
+        </div>
+        <div><strong>WS下载器</strong><small>FILES, WITHIN REACH</small></div>
+      </div>
+      <div class="badge"><i></i><span id="transport-state">连接就绪</span></div>
+    </header>
+    <main>
+      <div class="intro">
+        <div>
+          <h1>把文件，安心带到本地。</h1>
+          <p class="subtitle">
+            连接分享资源，选择保存位置。中断后，也能从上次进度继续。
+          </p>
+        </div>
+        <span class="intro-note">Windows · macOS · Linux</span>
+      </div>
+      <div class="notice" id="compatibility" role="alert"></div>
+      <div class="layout">
+        <aside class="card side">
+          <p class="section-label">下载设置</p>
+          <form id="connect-form">
+            <h2 class="step-title"><span class="step">1</span>连接资源</h2>
+            <label class="field"
+              >服务地址<input
+                id="server"
+                type="url"
+                required
+                placeholder="wss://example.com/ws"
+                spellcheck="false"
+                autocomplete="url"
+            /></label>
+            <label class="field"
+              >资源 ID<input
+                id="resource"
+                required
+                placeholder="输入分享的资源 ID"
+                spellcheck="false"
+                autocomplete="off"
+            /></label>
+            <button class="secondary wide" id="connect" type="submit">
+              获取文件列表 <span aria-hidden="true">↗</span>
+            </button>
+          </form>
+          <div class="separator"></div>
+          <h2 class="step-title"><span class="step">2</span>选择保存位置</h2>
+          <div class="destination">
+            <svg
+              width="29"
+              height="29"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.4"
+            >
+              <path d="M3 6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v10H3Z" /></svg
+            ><strong id="destination-name">还未选择文件夹</strong>
+            <p>文件保留原始名称和目录结构</p>
+            <button class="secondary" id="choose" type="button">
+              选择文件夹
+            </button>
+          </div>
+          <label class="check"
+            ><input
+              type="checkbox"
+              id="overwrite"
+            />允许覆盖内容不同的同名文件</label
+          >
+          <details>
+            <summary>传输选项</summary>
+            <label class="field"
+              >同时请求的分块数<input
+                type="number"
+                id="concurrency"
+                min="1"
+                max="64"
+                value="8"
+            /></label>
+            <p class="side-note">
+              分块大小由服务端配置。已校验一致的本地文件会自动跳过。
+            </p>
+          </details>
+          <p class="side-note">
+            支持桌面 Chrome / Edge。恢复下载时，重新选择原来的保存文件夹即可。
+          </p>
+        </aside>
+        <section>
+          <div class="card workspace">
+            <div class="workspace-head">
+              <div>
+                <h2 id="resource-name">资源文件</h2>
+                <p id="resource-description">
+                  连接后，在这里选择需要下载的内容
+                </p>
+              </div>
+              <span class="pill" id="connection-state">等待连接</span>
+            </div>
+            <div class="stats">
+              <div>
+                <div class="stat-label">可下载文件</div>
+                <div class="stat-value" id="file-count">—</div>
+              </div>
+              <div>
+                <div class="stat-label">已选大小</div>
+                <div class="stat-value" id="selected-size">—</div>
+              </div>
+              <div>
+                <div class="stat-label">已完成</div>
+                <div class="stat-value" id="completed-count">
+                  0 <small>个文件</small>
+                </div>
+              </div>
+            </div>
+            <div class="toolbar">
+              <label
+                ><input id="select-all" type="checkbox" disabled />全选</label
+              ><input
+                class="search"
+                id="filter"
+                placeholder="筛选文件名称…"
+                aria-label="筛选文件名称"
+              />
+            </div>
+            <div class="empty" id="empty">
+              <div class="empty-icon">
+                <svg
+                  width="30"
+                  height="30"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.3"
+                >
+                  <path d="M4 4h10l6 6v10H4Z" />
+                  <path d="M14 4v6h6M8 14h8m-8 3h5" />
+                </svg>
+              </div>
+              <h3>你的文件，即将抵达</h3>
+              <p>填写服务地址与资源 ID<br />获取列表后，即可开始下载</p>
+            </div>
+            <div class="file-scroll" id="file-scroll" hidden>
+              <table>
+                <thead>
+                  <tr>
+                    <th></th>
+                    <th>名称</th>
+                    <th>大小</th>
+                    <th>状态</th>
+                  </tr>
+                </thead>
+                <tbody id="files"></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="card status-panel" aria-live="polite">
+            <div class="status-top">
+              <div>
+                <p class="status-title" id="status">准备就绪</p>
+                <p class="status-caption" id="status-caption">
+                  选择资源和保存文件夹后开始下载。
+                </p>
+              </div>
+              <span class="pill" id="speed">—</span>
+            </div>
+            <div
+              class="progress"
+              role="progressbar"
+              aria-label="下载进度"
+              aria-valuemin="0"
+              aria-valuemax="100"
+              aria-valuenow="0"
+              id="progress"
+            >
+              <div id="progress-fill"></div>
+            </div>
+            <div class="progress-meta">
+              <span id="progress-detail">尚未开始</span
+              ><span id="percent">0%</span>
+            </div>
+            <div class="action-row">
+              <span class="hint"
+                >进度保存在文件旁边<br />再次打开，继续未完成的下载</span
+              >
+              <div class="action-buttons">
+                <button class="secondary" id="pause" type="button" disabled>
+                  暂停下载</button
+                ><button class="primary" id="start" type="button" disabled>
+                  开始下载 <span aria-hidden="true">↓</span>
+                </button>
+              </div>
+            </div>
+            <div class="log" id="log" hidden></div>
+          </div>
+        </section>
+      </div>
+    </main>
+    <footer><span>WS下载器</span><span>直接保存到你的设备</span></footer>
+    <script>
+      "use strict";
+      (() => {
+        const MiB = 1024 * 1024;
+        const encoder = new TextEncoder();
+        const decoder = new TextDecoder("utf-8", { fatal: true });
+        const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+        const hex = (bytes) =>
+          Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+        const digest = async (bytes) =>
+          hex(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)));
+        const abortError = () => new DOMException("下载已暂停", "AbortError");
+        function checkAbort(signal) {
+          if (signal?.aborted) throw abortError();
+        }
+
+        // Incremental SHA-256 keeps verification memory bounded for multi-GB files.
+        class SHA256 {
+          constructor() {
+            this.h = new Uint32Array([
+              0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f,
+              0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
+            ]);
+            this.buffer = new Uint8Array(64);
+            this.length = 0;
+            this.used = 0;
+            this.w = new Uint32Array(64);
+          }
+          update(bytes) {
+            this.length += bytes.length;
+            let offset = 0;
+            if (this.used) {
+              const n = Math.min(64 - this.used, bytes.length);
+              this.buffer.set(bytes.subarray(0, n), this.used);
+              this.used += n;
+              offset += n;
+              if (this.used === 64) {
+                this.compress(this.buffer, 0);
+                this.used = 0;
+              }
+            }
+            while (offset + 64 <= bytes.length) {
+              this.compress(bytes, offset);
+              offset += 64;
+            }
+            if (offset < bytes.length) {
+              this.buffer.set(bytes.subarray(offset));
+              this.used = bytes.length - offset;
+            }
+            return this;
+          }
+          compress(bytes, offset) {
+            const w = this.w,
+              k = SHA256.K,
+              rr = (x, n) => (x >>> n) | (x << (32 - n));
+            for (let i = 0; i < 16; i++) {
+              const p = offset + i * 4;
+              w[i] =
+                ((bytes[p] << 24) |
+                  (bytes[p + 1] << 16) |
+                  (bytes[p + 2] << 8) |
+                  bytes[p + 3]) >>>
+                0;
+            }
+            for (let i = 16; i < 64; i++) {
+              const x = w[i - 15],
+                y = w[i - 2];
+              w[i] =
+                (w[i - 16] +
+                  (rr(x, 7) ^ rr(x, 18) ^ (x >>> 3)) +
+                  w[i - 7] +
+                  (rr(y, 17) ^ rr(y, 19) ^ (y >>> 10))) >>>
+                0;
+            }
+            let [a, b, c, d, e, f, g, h] = this.h;
+            for (let i = 0; i < 64; i++) {
+              const t1 =
+                (h +
+                  (rr(e, 6) ^ rr(e, 11) ^ rr(e, 25)) +
+                  ((e & f) ^ (~e & g)) +
+                  k[i] +
+                  w[i]) >>>
+                0;
+              const t2 =
+                ((rr(a, 2) ^ rr(a, 13) ^ rr(a, 22)) +
+                  ((a & b) ^ (a & c) ^ (b & c))) >>>
+                0;
+              h = g;
+              g = f;
+              f = e;
+              e = (d + t1) >>> 0;
+              d = c;
+              c = b;
+              b = a;
+              a = (t1 + t2) >>> 0;
+            }
+            const v = [a, b, c, d, e, f, g, h];
+            for (let i = 0; i < 8; i++) this.h[i] = (this.h[i] + v[i]) >>> 0;
+          }
+          finish() {
+            const bitLength = this.length * 8,
+              tail = new Uint8Array(this.used < 56 ? 64 : 128);
+            tail.set(this.buffer.subarray(0, this.used));
+            tail[this.used] = 0x80;
+            const view = new DataView(tail.buffer);
+            view.setUint32(
+              tail.length - 8,
+              Math.floor(bitLength / 0x100000000),
+            );
+            view.setUint32(tail.length - 4, bitLength >>> 0);
+            for (let i = 0; i < tail.length; i += 64) this.compress(tail, i);
+            return Array.from(this.h, (x) =>
+              x.toString(16).padStart(8, "0"),
+            ).join("");
+          }
+        }
+        SHA256.K = new Uint32Array([
+          0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b,
+          0x59f111f1, 0x923f82a4, 0xab1c5ed5, 0xd807aa98, 0x12835b01,
+          0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7,
+          0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc,
+          0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152,
+          0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147,
+          0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc,
+          0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+          0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819,
+          0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116, 0x1e376c08,
+          0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f,
+          0x682e6ff3, 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
+          0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+        ]);
+
+        async function hashFile(file, signal) {
+          const sha = new SHA256();
+          for (let offset = 0; offset < file.size; offset += MiB) {
+            checkAbort(signal);
+            sha.update(
+              new Uint8Array(
+                await file.slice(offset, offset + MiB).arrayBuffer(),
+              ),
+            );
+          }
+          return sha.finish();
+        }
+
+        function normalizeServer(value) {
+          const u = new URL(value);
+          if (
+            (u.protocol !== "wss:" && u.protocol !== "ws:") ||
+            u.username ||
+            u.password ||
+            u.search ||
+            u.hash
+          )
+            throw new Error(
+              "服务地址必须是 WS/WSS 地址，例如 wss://example.com/ws",
+            );
+          if (u.pathname === "/" || u.pathname === "") u.pathname = "/ws";
+          return u.href;
+        }
+
+        function validateManifest(m) {
+          if (
+            !m ||
+            !Array.isArray(m.entries) ||
+            !Number.isSafeInteger(m.chunk_bytes) ||
+            m.chunk_bytes < 1 ||
+            m.chunk_bytes > 64 * MiB
+          )
+            throw new Error("服务端目录树或分块大小无效");
+          if (
+            !Number.isInteger(m.client_concurrency) ||
+            m.client_concurrency < 1 ||
+            m.client_concurrency > 64
+          )
+            throw new Error("服务端并发设置无效");
+          const paths = new Set(),
+            ids = new Set();
+          for (const e of m.entries) {
+            if (
+              typeof e.path !== "string" ||
+              e.path
+                .split("/")
+                .some(
+                  (p) => !p || p === "." || p === ".." || /[\\\u0000]/.test(p),
+                )
+            )
+              throw new Error("目录树包含不合法的文件路径");
+            if (
+              typeof e.id !== "string" ||
+              ids.has(e.id) ||
+              paths.has(e.path) ||
+              !["file", "directory"].includes(e.kind) ||
+              !Number.isSafeInteger(e.size) ||
+              e.size < 0
+            )
+              throw new Error("目录树包含重复或无效条目");
+            if (e.kind === "file" && !/^[a-f0-9]{64}$/.test(e.sha256))
+              throw new Error("文件缺少有效的 SHA-256 校验信息");
+            ids.add(e.id);
+            paths.add(e.path);
+          }
+          // Reserve artifact names before writing, including names of unselected files.
+          for (const e of m.entries.filter((e) => e.kind === "file")) {
+            if (paths.has(e.path + "._part.json"))
+              throw new Error("源文件名与断点记录冲突：" + e.path);
+            for (let i = 0; i < Math.ceil(e.size / m.chunk_bytes); i++)
+              if (paths.has(e.path + "." + i + "._part"))
+                throw new Error("源文件名与分块文件冲突：" + e.path);
+          }
+          return m;
+        }
+
+        class RPC {
+          constructor(server, resourceId, onLog = () => {}) {
+            this.server = normalizeServer(server);
+            this.resourceId = resourceId;
+            this.onLog = onLog;
+            this.pending = new Map();
+            this.sequence = 0;
+            this.socket = null;
+            this.connection = null;
+            this.stopped = false;
+            this.manifest = null;
+          }
+          async connect() {
+            if (this.stopped) throw abortError();
+            if (this.connection) return this.connection;
+            this.connection = this.open().catch((err) => {
+              this.connection = null;
+              throw err;
+            });
+            return this.connection;
+          }
+          async open() {
+            const socket = new WebSocket(this.server);
+            socket.binaryType = "arraybuffer";
+            this.socket = socket;
+            socket.onmessage = (event) => this.receive(event.data, socket);
+            socket.onclose = () => {
+              if (this.socket !== socket) return;
+              this.connection = null;
+              for (const p of this.pending.values()) {
+                clearTimeout(p.timer);
+                p.reject(new Error("连接已断开"));
+              }
+              this.pending.clear();
+            };
+            await new Promise((resolve, reject) => {
+              const timer = setTimeout(() => {
+                socket.close();
+                reject(new Error("连接超时"));
+              }, 15000);
+              socket.addEventListener(
+                "close",
+                () => {
+                  clearTimeout(timer);
+                  reject(this.stopped ? abortError() : new Error("连接已关闭"));
+                },
+                { once: true },
+              );
+              socket.onopen = () => {
+                clearTimeout(timer);
+                resolve();
+              };
+              socket.onerror = () => {
+                clearTimeout(timer);
+                reject(new Error("无法连接服务，请检查服务地址和反向代理配置"));
+              };
+            });
+            if (this.stopped) {
+              socket.close();
+              throw abortError();
+            }
+            const response = await this.request(
+              { type: "manifest", resource_id: this.resourceId },
+              10 * 60 * 1000,
+            );
+            this.manifest = validateManifest(response.manifest);
+            return this.manifest;
+          }
+          request(payload, timeout = 150000) {
+            return new Promise((resolve, reject) => {
+              if (this.stopped) {
+                reject(abortError());
+                return;
+              }
+              if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+                reject(new Error("连接不可用"));
+                return;
+              }
+              const id = String(++this.sequence),
+                timer = setTimeout(() => {
+                  this.pending.delete(id);
+                  reject(new Error("请求超时"));
+                  this.socket?.close();
+                }, timeout);
+              this.pending.set(id, { resolve, reject, timer });
+              try {
+                this.socket.send(
+                  JSON.stringify({ ...payload, request_id: id }),
+                );
+              } catch (err) {
+                clearTimeout(timer);
+                this.pending.delete(id);
+                reject(err);
+              }
+            });
+          }
+          receive(data, socket) {
+            if (this.socket !== socket) return;
+            try {
+              let message, bytes;
+              if (typeof data === "string") message = JSON.parse(data);
+              else {
+                if (data.byteLength < 4) throw new Error("分块消息不完整");
+                const size = new DataView(data).getUint32(0);
+                if (size > 16384 || size + 4 > data.byteLength)
+                  throw new Error("分块消息头无效");
+                message = JSON.parse(
+                  decoder.decode(new Uint8Array(data, 4, size)),
+                );
+                bytes = new Uint8Array(data, 4 + size);
+              }
+              const pending = this.pending.get(message.request_id);
+              if (!pending) return;
+              clearTimeout(pending.timer);
+              this.pending.delete(message.request_id);
+              if (message.type === "error") {
+                const err = new Error(message.message);
+                err.server = true;
+                pending.reject(err);
+              } else pending.resolve({ ...message, bytes });
+            } catch (err) {
+              this.onLog(err.message);
+              socket.close();
+            }
+          }
+          async block(file, index, signal) {
+            for (let attempt = 0; attempt < 3; attempt++) {
+              checkAbort(signal);
+              try {
+                await this.connect();
+                const result = await this.request({
+                  type: "block",
+                  file_id: file.id,
+                  index,
+                });
+                if (
+                  result.type !== "block" ||
+                  result.file_id !== file.id ||
+                  result.index !== index ||
+                  result.offset !== index * this.manifest.chunk_bytes ||
+                  !result.bytes ||
+                  result.length !== result.bytes.byteLength ||
+                  result.length !==
+                    Math.min(
+                      this.manifest.chunk_bytes,
+                      file.size - index * this.manifest.chunk_bytes,
+                    )
+                )
+                  throw new Error("收到的分块位置或长度不一致");
+                if ((await digest(result.bytes)) !== result.sha256)
+                  throw new Error("分块校验失败");
+                return result;
+              } catch (err) {
+                checkAbort(signal);
+                if (this.stopped) throw abortError();
+                if (err.server || attempt === 2) throw err;
+                this.onLog("连接或校验异常，正在重试…");
+                await sleep(400 * (attempt + 1));
+              }
+            }
+          }
+          close() {
+            this.stopped = true;
+            for (const p of this.pending.values()) {
+              clearTimeout(p.timer);
+              p.reject(abortError());
+            }
+            this.pending.clear();
+            this.socket?.close();
+            this.connection = null;
+          }
+        }
+
+        async function optionalFile(dir, name) {
+          try {
+            return await dir.getFileHandle(name);
+          } catch (err) {
+            if (err.name === "NotFoundError") return null;
+            throw err;
+          }
+        }
+        async function writeFile(handle, data) {
+          const writer = await handle.createWritable();
+          try {
+            await writer.write(data);
+            await writer.close();
+          } catch (err) {
+            try {
+              await writer.abort();
+            } catch {}
+            throw err;
+          }
+        }
+        async function parentFor(root, relative) {
+          const parts = relative.split("/");
+          const name = parts.pop();
+          let dir = root;
+          for (const part of parts)
+            dir = await dir.getDirectoryHandle(part, { create: true });
+          return { dir, name };
+        }
+        async function readRecord(handle) {
+          if (!handle) return null;
+          const file = await handle.getFile();
+          if (file.size > 32 * MiB) throw new Error("断点记录过大");
+          return JSON.parse(await file.text());
+        }
+
+        class DownloadManager {
+          constructor({
+            rpc,
+            root,
+            manifest,
+            overwrite = false,
+            concurrency = 8,
+            onEvent = () => {},
+          }) {
+            this.rpc = rpc;
+            this.root = root;
+            this.manifest = validateManifest(manifest);
+            this.overwrite = overwrite;
+            this.concurrency = Math.min(
+              64,
+              manifest.max_pending_requests || 64,
+              Math.max(1, concurrency),
+            );
+            this.onEvent = onEvent;
+            this.controller = new AbortController();
+            this.total = 0;
+            this.done = 0;
+            this.network = 0;
+            this.finished = 0;
+            this.errors = [];
+          }
+          emit(type, detail = {}) {
+            this.onEvent({
+              type,
+              total: this.total,
+              done: this.done,
+              network: this.network,
+              finished: this.finished,
+              ...detail,
+            });
+          }
+          pause() {
+            this.controller.abort();
+            this.rpc.close();
+          }
+          async run(selected) {
+            const entries = this.manifest.entries.filter((e) =>
+              selected.has(e.id),
+            );
+            this.total = entries.reduce(
+              (n, e) => n + (e.kind === "file" ? e.size : 0),
+              0,
+            );
+            this.emit("start");
+            for (const entry of entries) {
+              checkAbort(this.controller.signal);
+              try {
+                if (entry.kind === "directory") {
+                  let dir = this.root;
+                  for (const part of entry.path.split("/"))
+                    dir = await dir.getDirectoryHandle(part, { create: true });
+                  this.emit("directory", { file: entry });
+                } else await this.download(entry);
+              } catch (err) {
+                if (this.controller.signal.aborted || err.name === "AbortError")
+                  throw abortError();
+                this.errors.push({ path: entry.path, message: err.message });
+                this.emit("file-error", { file: entry, message: err.message });
+              }
+            }
+            this.emit("complete", { errors: this.errors });
+            return { errors: this.errors, finished: this.finished };
+          }
+          async download(entry) {
+            const signal = this.controller.signal,
+              { dir, name } = await parentFor(this.root, entry.path),
+              chunk = this.manifest.chunk_bytes,
+              count = Math.ceil(entry.size / chunk);
+            this.emit("checking", { file: entry });
+            const existing = await optionalFile(dir, name);
+            let localSize = null;
+            if (existing) {
+              const local = await existing.getFile();
+              localSize = local.size;
+              if (
+                local.size === entry.size &&
+                (await hashFile(local, signal)) === entry.sha256
+              ) {
+                await this.cleanupFinishedParts(dir, name, entry);
+                this.done += entry.size;
+                this.finished++;
+                this.emit("skipped", { file: entry });
+                return;
+              }
+            }
+            const recordName = name + "._part.json",
+              oldHandle = await optionalFile(dir, recordName);
+            let record;
+            try {
+              record = await readRecord(oldHandle);
+            } catch {
+              throw new Error(
+                "断点记录无法解析，为避免覆盖已有文件，请先检查 " + recordName,
+              );
+            }
+            if (record) {
+              if (
+                record.format !== "wsdownloader-v1" ||
+                record.server !== this.rpc.server ||
+                record.resource_id !== this.manifest.resource_id ||
+                record.file_id !== entry.id ||
+                record.path !== entry.path ||
+                record.size !== entry.size ||
+                record.chunk_bytes !== chunk ||
+                !record.completed ||
+                typeof record.completed !== "object" ||
+                Array.isArray(record.completed)
+              )
+                throw new Error(
+                  "同级断点记录属于其他任务或分块设置，请先处理 " + recordName,
+                );
+            } else {
+              for (let i = 0; i < count; i++)
+                if (await optionalFile(dir, name + "." + i + "._part"))
+                  throw new Error(
+                    "发现没有归属记录的分块文件，请先检查 " +
+                      name +
+                      "." +
+                      i +
+                      "._part",
+                  );
+              record = {
+                format: "wsdownloader-v1",
+                server: this.rpc.server,
+                resource_id: this.manifest.resource_id,
+                file_id: entry.id,
+                path: entry.path,
+                size: entry.size,
+                chunk_bytes: chunk,
+                completed: {},
+              };
+            }
+            // An interrupted first merge can leave the empty file created by the picker
+            // API. A committed ownership marker lets that task resume without --overwrite.
+            if (
+              existing &&
+              !this.overwrite &&
+              !(localSize === 0 && record.target_created === true)
+            )
+              throw new Error("存在内容不同的同名文件，请开启允许覆盖后重试");
+            const recordHandle =
+              oldHandle ||
+              (await dir.getFileHandle(recordName, { create: true }));
+            await writeFile(recordHandle, JSON.stringify(record));
+            const ready = new Set();
+            let fileDone = 0;
+            for (let i = 0; i < count; i++) {
+              checkAbort(signal);
+              const meta = record.completed[i];
+              if (!meta) continue;
+              const handle = await optionalFile(dir, name + "." + i + "._part");
+              if (handle) {
+                const file = await handle.getFile();
+                if (
+                  file.size === Math.min(chunk, entry.size - i * chunk) &&
+                  (await hashFile(file, signal)) === meta.sha256
+                ) {
+                  ready.add(i);
+                  fileDone += file.size;
+                  continue;
+                }
+              }
+              delete record.completed[i];
+            }
+            this.done += fileDone;
+            await writeFile(recordHandle, JSON.stringify(record));
+            this.emit("resumed", { file: entry, bytes: fileDone });
+            let recordQueue = Promise.resolve(),
+              cursor = 0,
+              firstError = null;
+            const missing = [];
+            for (let i = 0; i < count; i++) if (!ready.has(i)) missing.push(i);
+            const worker = async () => {
+              while (!firstError) {
+                checkAbort(signal);
+                const pos = cursor++;
+                if (pos >= missing.length) return;
+                const index = missing[pos];
+                try {
+                  const result = await this.rpc.block(entry, index, signal);
+                  checkAbort(signal);
+                  const handle = await dir.getFileHandle(
+                    name + "." + index + "._part",
+                    { create: true },
+                  );
+                  await writeFile(handle, result.bytes);
+                  // Serialize record commits so concurrent block writes never lose progress.
+                  recordQueue = recordQueue.then(async () => {
+                    record.completed[index] = {
+                      sha256: result.sha256,
+                      length: result.length,
+                    };
+                    await writeFile(recordHandle, JSON.stringify(record));
+                  });
+                  await recordQueue;
+                  this.done += result.length;
+                  this.network += result.length;
+                  this.emit("progress", { file: entry, index });
+                } catch (err) {
+                  firstError = err;
+                }
+              }
+            };
+            const workers = await Promise.allSettled(
+              Array.from(
+                { length: Math.min(this.concurrency, missing.length) },
+                worker,
+              ),
+            );
+            await recordQueue;
+            if (firstError) throw firstError;
+            for (const workerResult of workers)
+              if (workerResult.status === "rejected") throw workerResult.reason;
+            checkAbort(signal);
+            this.emit("merging", { file: entry });
+            record.target_created = !existing || record.target_created === true;
+            await writeFile(recordHandle, JSON.stringify(record));
+            const target =
+                existing || (await dir.getFileHandle(name, { create: true })),
+              writer = await target.createWritable(),
+              sha = new SHA256();
+            try {
+              for (let i = 0; i < count; i++) {
+                checkAbort(signal);
+                const part = await (
+                  await dir.getFileHandle(name + "." + i + "._part")
+                ).getFile();
+                const data = new Uint8Array(await part.arrayBuffer());
+                if (
+                  data.byteLength !== Math.min(chunk, entry.size - i * chunk) ||
+                  (await digest(data)) !== record.completed[i]?.sha256
+                )
+                  throw new Error("合并时分块校验失败：" + i);
+                sha.update(data);
+                await writer.write(data);
+              }
+              if (sha.finish() !== entry.sha256)
+                throw new Error(
+                  "整文件校验失败，分块已保留；请检查源文件是否发生变化",
+                );
+              checkAbort(signal);
+              await writer.close();
+            } catch (err) {
+              try {
+                await writer.abort();
+              } catch {}
+              throw err;
+            }
+            // Re-read the committed file before deleting the only resumable copies.
+            const saved = await target.getFile();
+            if (
+              saved.size !== entry.size ||
+              (await hashFile(saved, signal)) !== entry.sha256
+            )
+              throw new Error("保存后的文件校验失败，分块已保留");
+            for (let i = 0; i < count; i++)
+              await dir.removeEntry(name + "." + i + "._part");
+            await dir.removeEntry(recordName);
+            this.finished++;
+            this.emit("file-complete", { file: entry });
+          }
+          async cleanupFinishedParts(dir, name, entry) {
+            const recordName = name + "._part.json",
+              handle = await optionalFile(dir, recordName);
+            let record;
+            try {
+              record = await readRecord(handle);
+            } catch {
+              return;
+            }
+            if (
+              !record ||
+              record.format !== "wsdownloader-v1" ||
+              record.server !== this.rpc.server ||
+              record.resource_id !== this.manifest.resource_id ||
+              record.file_id !== entry.id ||
+              record.path !== entry.path ||
+              record.size !== entry.size ||
+              record.chunk_bytes !== this.manifest.chunk_bytes
+            )
+              return;
+            for (
+              let i = 0;
+              i < Math.ceil(entry.size / record.chunk_bytes);
+              i++
+            ) {
+              const part = name + "." + i + "._part";
+              if (await optionalFile(dir, part)) await dir.removeEntry(part);
+            }
+            await dir.removeEntry(recordName);
+          }
+        }
+
+        globalThis.WSDownloader = Object.freeze({
+          RPC,
+          DownloadManager,
+          SHA256,
+          hashFile,
+          digest,
+          validateManifest,
+          normalizeServer,
+        });
+
+        function initializeUI() {
+          const $ = (id) => document.getElementById(id);
+          let rpc = null,
+            manifest = null,
+            root = null,
+            manager = null,
+            busy = false,
+            loading = false,
+            paused = false,
+            selected = new Set(),
+            statuses = new Map(),
+            startedAt = 0,
+            lastNetwork = 0,
+            lastTime = 0;
+          const format = (n) => {
+            if (n < 1024) return n + " B";
+            const units = ["KiB", "MiB", "GiB", "TiB"];
+            let i = -1;
+            do {
+              n /= 1024;
+              i++;
+            } while (n >= 1024 && i < units.length - 1);
+            return n.toFixed(n < 10 ? 1 : 0) + " " + units[i];
+          };
+          const log = (message) => {
+            const node = $("log");
+            node.hidden = false;
+            node.textContent = (node.textContent + "\n" + message)
+              .trim()
+              .split("\n")
+              .slice(-50)
+              .join("\n");
+            node.scrollTop = node.scrollHeight;
+          };
+          const setStatus = (title, caption = "", error = false) => {
+            $("status").textContent = title;
+            $("status").classList.toggle("error", error);
+            $("status-caption").textContent = caption;
+          };
+          const controls = () => {
+            $("connect").disabled = busy || loading;
+            $("choose").disabled = busy || !("showDirectoryPicker" in window);
+            $("start").disabled =
+              busy || loading || !root || !manifest || selected.size === 0;
+            $("pause").disabled = !busy;
+            $("overwrite").disabled = busy;
+            $("concurrency").disabled = busy;
+            $("select-all").disabled = busy || !manifest;
+            $("server").disabled = busy || loading;
+            $("resource").disabled = busy || loading;
+          };
+          const icon = (kind) =>
+            kind === "directory"
+              ? '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 6h7l2 3h9v11H3Z"/></svg>'
+              : '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M5 3h9l5 5v13H5Z"/><path d="M14 3v6h5"/></svg>';
+          function render() {
+            if (!manifest) return;
+            const entries = manifest.entries,
+              files = entries.filter((e) => e.kind === "file"),
+              picked = files.filter((e) => selected.has(e.id));
+            $("file-count").textContent = files.length;
+            $("selected-size").textContent = format(
+              picked.reduce((n, e) => n + e.size, 0),
+            );
+            $("select-all").checked =
+              entries.length > 0 && selected.size === entries.length;
+            $("select-all").indeterminate =
+              selected.size > 0 && selected.size < entries.length;
+            $("empty").hidden = entries.length > 0;
+            $("file-scroll").hidden = entries.length === 0;
+            const tbody = $("files");
+            tbody.replaceChildren();
+            const filter = $("filter").value.toLocaleLowerCase();
+            for (const e of entries
+              .filter((e) => e.path.toLocaleLowerCase().includes(filter))
+              .slice(0, 1000)) {
+              const row = document.createElement("tr"),
+                cell = document.createElement("td"),
+                check = document.createElement("input");
+              check.type = "checkbox";
+              check.checked = selected.has(e.id);
+              check.disabled = busy;
+              check.setAttribute("aria-label", "选择 " + e.path);
+              check.onchange = () => {
+                for (const child of entries)
+                  if (
+                    child.id === e.id ||
+                    (e.kind === "directory" &&
+                      child.path.startsWith(e.path + "/"))
+                  ) {
+                    if (check.checked) selected.add(child.id);
+                    else selected.delete(child.id);
+                  }
+                render();
+              };
+              cell.append(check);
+              row.append(cell);
+              const fileCell = document.createElement("td"),
+                name = document.createElement("div");
+              name.className = "filename";
+              name.innerHTML = icon(e.kind);
+              const text = document.createElement("span");
+              text.textContent = e.path;
+              text.title = e.path;
+              name.append(text);
+              fileCell.append(name);
+              row.append(fileCell);
+              const size = document.createElement("td");
+              size.textContent = e.kind === "directory" ? "—" : format(e.size);
+              row.append(size);
+              const state = document.createElement("td");
+              state.className = "file-status";
+              state.textContent =
+                statuses.get(e.id) ||
+                (e.kind === "directory" ? "文件夹" : "待下载");
+              if (["已完成", "已跳过"].includes(state.textContent))
+                state.classList.add("done");
+              row.append(state);
+              tbody.append(row);
+            }
+            controls();
+          }
+          if (location.protocol === "https:" || location.protocol === "http:")
+            $("server").value =
+              (location.protocol === "https:" ? "wss://" : "ws://") +
+              location.host +
+              "/ws";
+          $("transport-state").textContent =
+            location.protocol === "https:" ? "HTTPS 访问" : "本地访问";
+          const params = new URLSearchParams(location.search);
+          if (params.has("id")) $("resource").value = params.get("id");
+          if (params.has("server")) $("server").value = params.get("server");
+          if (!window.isSecureContext || !("showDirectoryPicker" in window))
+            $("compatibility").textContent =
+              "请使用桌面 Chrome / Edge，通过 HTTPS 或本机 localhost/127.0.0.1 打开页面，才能选择文件夹并保存文件。";
+          for (const id of ["server", "resource"])
+            $(id).addEventListener("input", () => {
+              if (busy || loading) return;
+              rpc?.close();
+              rpc = null;
+              manifest = null;
+              selected.clear();
+              statuses.clear();
+              $("files").replaceChildren();
+              $("empty").hidden = false;
+              $("file-scroll").hidden = true;
+              $("connection-state").textContent = "等待连接";
+              $("resource-name").textContent = "资源文件";
+              $("resource-description").textContent =
+                "连接后，在这里选择需要下载的内容";
+              $("file-count").textContent = "—";
+              $("selected-size").textContent = "—";
+              $("select-all").checked = false;
+              $("select-all").indeterminate = false;
+              setStatus("连接设置已更改", "请重新获取文件列表。");
+              controls();
+            });
+          $("choose").onclick = async () => {
+            try {
+              const chosen = await window.showDirectoryPicker({
+                mode: "readwrite",
+                id: "ws-downloader",
+              });
+              root = chosen;
+              $("destination-name").textContent = chosen.name;
+              setStatus(
+                "保存位置已选择",
+                "文件将保存在 " + chosen.name + " 文件夹内。",
+              );
+              controls();
+            } catch (err) {
+              if (err.name !== "AbortError")
+                setStatus("无法访问保存目录", err.message, true);
+            }
+          };
+          $("connect-form").onsubmit = async (event) => {
+            event.preventDefault();
+            if (busy || loading) return;
+            loading = true;
+            rpc?.close();
+            rpc = null;
+            manifest = null;
+            selected.clear();
+            statuses.clear();
+            $("files").replaceChildren();
+            $("file-scroll").hidden = true;
+            $("empty").hidden = false;
+            $("connection-state").textContent = "连接中";
+            controls();
+            setStatus(
+              "正在获取文件列表",
+              "首次读取需要计算文件校验信息，大目录可能需要一些时间。",
+            );
+            try {
+              rpc = new RPC(
+                $("server").value.trim(),
+                $("resource").value.trim(),
+                log,
+              );
+              manifest = await rpc.connect();
+              selected = new Set(manifest.entries.map((e) => e.id));
+              $("resource-name").textContent = manifest.name;
+              $("resource-description").textContent =
+                "选择需要下载的文件或文件夹";
+              $("connection-state").textContent = "已连接";
+              $("concurrency").value = manifest.client_concurrency;
+              for (const warning of manifest.warnings || [])
+                log(warning.path + "：" + warning.message);
+              setStatus(
+                "文件列表已就绪",
+                manifest.warnings?.length
+                  ? "部分条目无法读取，详情见下方记录。"
+                  : "选择保存位置后，即可开始下载。",
+              );
+              render();
+            } catch (err) {
+              rpc?.close();
+              $("connection-state").textContent = "连接失败";
+              setStatus("获取文件列表失败", err.message, true);
+            } finally {
+              loading = false;
+              controls();
+            }
+          };
+          $("filter").oninput = render;
+          $("select-all").onchange = () => {
+            if (manifest)
+              selected = $("select-all").checked
+                ? new Set(manifest.entries.map((e) => e.id))
+                : new Set();
+            render();
+          };
+          $("start").onclick = async () => {
+            if (busy || !root || !manifest) return;
+            const concurrency = Number($("concurrency").value);
+            if (
+              !Number.isInteger(concurrency) ||
+              concurrency < 1 ||
+              concurrency > 64
+            ) {
+              setStatus(
+                "传输选项无效",
+                "同时请求的分块数须在 1～64 之间。",
+                true,
+              );
+              return;
+            }
+            busy = true;
+            paused = false;
+            statuses.clear();
+            $("completed-count").textContent = "0 个文件";
+            $("progress-fill").style.width = "0%";
+            $("percent").textContent = "0%";
+            startedAt = performance.now();
+            lastTime = startedAt;
+            lastNetwork = 0;
+            render();
+            // Reuse the preview's tree; a resumed connection fetches its own tree once.
+            if (!rpc || rpc.stopped)
+              rpc = new RPC(
+                $("server").value.trim(),
+                $("resource").value.trim(),
+                log,
+              );
+            const states = {
+              checking: "正在核验",
+              resumed: "下载中",
+              progress: "下载中",
+              merging: "正在合并",
+              skipped: "已跳过",
+              "file-complete": "已完成",
+              "file-error": "失败",
+              directory: "已完成",
+            };
+            try {
+              manifest = await rpc.connect();
+              if (paused) throw abortError();
+              selected = new Set(
+                manifest.entries
+                  .filter((e) => selected.has(e.id))
+                  .map((e) => e.id),
+              );
+              manager = new DownloadManager({
+                rpc,
+                root,
+                manifest,
+                overwrite: $("overwrite").checked,
+                concurrency,
+                onEvent: (event) => {
+                  const pct = event.total
+                    ? Math.min(100, (event.done / event.total) * 100)
+                    : event.type === "complete"
+                      ? 100
+                      : 0;
+                  $("progress-fill").style.width = pct + "%";
+                  $("progress").setAttribute(
+                    "aria-valuenow",
+                    String(Math.round(pct)),
+                  );
+                  $("percent").textContent = pct.toFixed(1) + "%";
+                  $("progress-detail").textContent =
+                    format(event.done) + " / " + format(event.total);
+                  $("completed-count").textContent = event.finished + " 个文件";
+                  const now = performance.now();
+                  if (now - lastTime > 500) {
+                    $("speed").textContent =
+                      format(
+                        Math.max(0, event.network - lastNetwork) /
+                          ((now - lastTime) / 1000),
+                      ) + "/s";
+                    lastTime = now;
+                    lastNetwork = event.network;
+                  }
+                  if (event.file) {
+                    statuses.set(event.file.id, states[event.type] || "下载中");
+                    const captions = {
+                      checking: "正在核验本地文件与断点",
+                      merging: "分块已保存，正在合并并校验",
+                      resumed:
+                        "已复用 " + format(event.bytes || 0) + " 本地分块",
+                    };
+                    setStatus(
+                      captions[event.type] || "正在下载",
+                      event.file.path,
+                      event.type === "file-error",
+                    );
+                    if (event.type !== "progress") render();
+                  }
+                  if (event.type === "file-error")
+                    log(event.file.path + "：" + event.message);
+                },
+              });
+              const result = await manager.run(new Set(selected));
+              setStatus(
+                result.errors.length ? "下载结束，部分文件未完成" : "下载完成",
+                result.errors.length
+                  ? result.errors.length +
+                      " 个条目失败，已保存的分块可以继续使用。"
+                  : result.finished + " 个文件已保存并校验。",
+                result.errors.length > 0,
+              );
+              $("speed").textContent = "已结束";
+              $("start").firstChild.textContent = result.errors.length
+                ? "重试未完成文件 "
+                : "再次下载 ";
+            } catch (err) {
+              if (err.name === "AbortError") {
+                setStatus(
+                  "下载已暂停",
+                  "已提交的分块保留在原文件旁，点击继续下载即可恢复。",
+                );
+                $("start").firstChild.textContent = "继续下载 ";
+                $("speed").textContent = "已暂停";
+              } else setStatus("下载失败", err.message, true);
+            } finally {
+              busy = false;
+              manager = null;
+              rpc?.close();
+              render();
+              controls();
+            }
+          };
+          $("pause").onclick = () => {
+            if (busy) {
+              paused = true;
+              $("pause").disabled = true;
+              setStatus("正在暂停", "正在完成已开始的本地文件写入。");
+              if (manager) manager.pause();
+              else rpc?.close();
+            }
+          };
+          window.addEventListener("beforeunload", (event) => {
+            if (busy) {
+              event.preventDefault();
+              event.returnValue = "";
+            }
+          });
+          controls();
+        }
+        if (typeof document !== "undefined") initializeUI();
+      })();
+    </script>
+  </body>
+</html>

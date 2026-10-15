@@ -1,0 +1,11 @@
+listen: "127.0.0.1:8080"
+# CLI 默认直连本机管理接口；也可填写反向代理的 HTTPS 地址。
+server_url: "http://127.0.0.1:8080"
+chunk_bytes: 4194304
+channel_bytes: 33554432
+client_concurrency: 8
+workers: 8
+pending_requests: 64
+# 默认允许同 Host 页面（包括代理后的 HTTPS 页面）。独立部署 HTML 时填写其 origin。
+allowed_origins: []
+resources: []

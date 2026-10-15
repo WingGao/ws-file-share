@@ -1,0 +1,8 @@
+/config.yaml
+/certs/
+/dist/
+/.cache/
+/.test-data/
+/node_modules/
+*.exe
+*.test
