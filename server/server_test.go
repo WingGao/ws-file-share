@@ -19,6 +19,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -275,7 +276,7 @@ func TestSymlinkMaterializationAndCycle(t *testing.T) {
 	if err := os.Symlink(root, filepath.Join(root, "loop")); err != nil {
 		t.Fatal(err)
 	}
-	m, err := buildManifest(context.Background(), config.Resource{ID: config.ID(root), Path: root}, config.Default())
+	m, err := buildManifest(context.Background(), config.Resource{ID: config.ID(root), Path: root}, config.Default(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -641,4 +642,41 @@ func TestAdminBindFailureReleasesDownloadListener(t *testing.T) {
 		t.Fatalf("download listener leaked after startup failure: %v", err)
 	}
 	_ = listener.Close()
+}
+
+func TestReloadPreparesHashesBeforeBrowserManifest(t *testing.T) {
+	app, s, cfg, _, _ := fixture(t)
+	var reads atomic.Int32
+	app.hashes.readHash = func(ctx context.Context, path string, info os.FileInfo) (string, error) {
+		reads.Add(1)
+		return readFileHash(ctx, path, info)
+	}
+	for range 2 {
+		body, _ := json.Marshal(map[string]string{"prepare_resource_id": cfg.Resources[0].ID})
+		resp, err := s.Client().Post(cfg.AdminURL()+"/api/reload", "application/json", bytes.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var result struct {
+			Prepared Preparation `json:"prepared"`
+		}
+		err = json.NewDecoder(resp.Body).Decode(&result)
+		_ = resp.Body.Close()
+		if err != nil || resp.StatusCode != http.StatusOK || result.Prepared.Files != 2 || result.Prepared.Warnings != 0 {
+			t.Fatalf("preparation failed: %+v, %s, %v", result, resp.Status, err)
+		}
+	}
+	conn, ctx := dial(t, s)
+	getManifest(t, ctx, conn, cfg.Resources[0].ID)
+	if reads.Load() != 2 {
+		t.Fatalf("prepared files were read %d times instead of 2", reads.Load())
+	}
+	resp, err := s.Client().Post(cfg.AdminURL()+"/api/reload", "application/json", strings.NewReader(`{"prepare_resource_id":"unknown"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatal("preparation accepted an unconfigured resource")
+	}
 }

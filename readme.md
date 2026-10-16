@@ -46,7 +46,7 @@
 ./cli add "/data/archive.zip"
 ```
 
-命令会输出包含 `id` 和 `path` 的 JSON。复制其中的 **`id` 值**，下载时需要填写。重复添加同一路径会返回相同 ID。
+添加时会预先计算文件的 SHA-256 并保存到本地缓存，首次添加大文件或大目录可能需要等待。命令提示「校验准备完成」后，复制输出 JSON 中的 **`id` 值**，下载时需要填写。重复添加同一路径会返回相同 ID，并复用未变化文件的缓存。
 
 ### 3. 在浏览器中下载
 
@@ -66,6 +66,55 @@ http://127.0.0.1:8080/?id=资源ID
 ```
 
 **从其他电脑访问时，`127.0.0.1` 指向接收者自己的电脑。** 请按下一节通过 HTTPS 域名或局域网地址访问服务。
+
+## 使用 Docker
+
+本机安装 Go 1.25 或以上版本、[just](https://github.com/casey/just) 和 Docker 后，在仓库根目录执行：
+
+```sh
+just docker
+```
+
+命令会先在本机编译 Linux 静态程序，再复制进镜像，默认镜像名为 `wingao/ws-file-share:latest`、架构为 `amd64`。ARM64 使用 `just docker wingao/ws-file-share:arm64 arm64`。更多构建选项见[开发文档](docs/development.md#docker-镜像)。
+
+以下以 Linux/macOS 为例。将 `/path/to/files` 替换为宿主机上需要分享的目录：
+
+```sh
+mkdir -p docker-config
+docker run -d --name ws-file-share \
+  --user "$(id -u):$(id -g)" \
+  -p 8080:8080 \
+  -v "$(pwd)/docker-config:/config" \
+  -v "/path/to/files:/data:ro" \
+  wingao/ws-file-share:latest
+```
+
+Windows / PowerShell 使用 Docker Desktop 的 Linux 容器模式，例如：
+
+```powershell
+New-Item -ItemType Directory -Force docker-config
+docker run -d --name ws-file-share -p 8080:8080 -v "${PWD}/docker-config:/config" -v "D:/Photos:/data:ro" wingao/ws-file-share:latest
+```
+
+首次启动会在 `docker-config` 中生成 `config.yaml`，已有配置会保留。容器默认下载监听地址是 `0.0.0.0:8080`；如果挂载已有配置，也需使用该地址，才能通过端口映射访问。
+
+在容器内添加分享，复制输出的资源 ID，再打开宿主机的 `http://127.0.0.1:8080` 下载：
+
+```sh
+docker exec ws-file-share cli add /data
+docker exec ws-file-share cli list
+```
+
+添加资源时使用**容器内路径**，例如 `/data`。配置必须挂载整个目录到 `/config`，才能正常保存和重载；分享目录可只读挂载。管理端口只在容器内监听，不需要映射 `8081`。
+
+```sh
+docker exec ws-file-share cli reload   # 修改配置后重载
+docker logs -f ws-file-share          # 查看日志
+docker restart ws-file-share         # 修改监听地址后重启
+docker stop ws-file-share            # 停止服务
+```
+
+从其他电脑访问容器服务时，仍需按下文设置 HTTPS 或局域网 HTTP 的浏览器权限。
 
 ## 让其他电脑访问
 
@@ -131,7 +180,7 @@ archive.zip._part.json
 | 手动重载配置 | `./cli reload` |
 | 查看命令帮助 | `./cli add --help` |
 
-`remove` 只移除分享配置，不删除源文件。服务运行时，`add`、`remove` 会自动通知它重载配置；服务未运行时也能保存修改，下次启动生效。
+`remove` 只移除分享配置，不删除源文件。服务运行时，`add`、`remove` 会自动通知它重载配置，`add` 还会等待校验缓存准备完成。服务未运行时，`add` 会直接在本机计算并保存缓存，下次启动即可使用。
 
 所有命令默认使用当前目录的 `config.yaml`。使用其他配置文件时，每次操作都指定同一个路径，例如：
 
@@ -194,7 +243,9 @@ Windows 下 Chrome/Edge 的目录读写 API 会限制 DLL 等文件类型。可�
 
 ### 获取文件列表很慢
 
-获取列表时，服务端需要读取文件并计算校验信息。大文件或文件数量较多时，需要等待；这一步完成后才会显示可下载内容。
+`cli add` 会提前计算 SHA-256，保存到配置文件同目录的 `sha256.kv` 中，获取列表和重启服务都会复用。如果添加后又新增文件，或文件大小、修改时间变化，下次获取列表时需要重新计算；也可以重新执行同一路径的 `cli add` 提前更新缓存。Docker 部署的缓存位于 `/config/sha256.kv`，会随配置目录一起持久化。
+
+如果需要强制重新计算，请先停止服务，删除 `sha256.kv` 缓存文件，再启动服务。不要删除用于断点续传的 `._part` 文件和 JSON 记录。
 
 ### 提示「断点记录不匹配」
 

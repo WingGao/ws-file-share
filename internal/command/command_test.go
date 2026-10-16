@@ -2,6 +2,8 @@ package command
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -11,7 +13,9 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
+	bolt "go.etcd.io/bbolt"
 	"wsdownloader/internal/config"
 )
 
@@ -50,6 +54,7 @@ func TestCLIInitAddIdempotentAndRemoveOffline(t *testing.T) {
 		if err := json.Unmarshal(stdout.Bytes(), &resource); err != nil || resource.ID != config.ID(file) {
 			t.Fatalf("add output: %s %v", stdout.String(), err)
 		}
+		assertPreparedHash(t, path, file, []byte("hello"))
 	}
 	cfg, err = config.Load(path)
 	if err != nil || len(cfg.Resources) != 1 {
@@ -61,6 +66,38 @@ func TestCLIInitAddIdempotentAndRemoveOffline(t *testing.T) {
 	cfg, err = config.Load(path)
 	if err != nil || len(cfg.Resources) != 0 {
 		t.Fatal("remove not persisted")
+	}
+}
+
+func assertPreparedHash(t *testing.T, configPath, file string, content []byte) {
+	t.Helper()
+	db, err := bolt.Open(filepath.Join(filepath.Dir(configPath), "sha256.kv"), 0600, &bolt.Options{ReadOnly: true, Timeout: time.Second})
+	if err != nil {
+		t.Fatalf("CLI did not create a readable SHA cache: %v", err)
+	}
+	defer db.Close()
+	real, err := filepath.EvalSymlinks(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.View(func(tx *bolt.Tx) error {
+		var record struct {
+			SHA256 string `json:"sha256"`
+		}
+		bucket := tx.Bucket([]byte("file-sha256-v1"))
+		if bucket == nil {
+			t.Fatal("CLI did not create the SHA bucket")
+		}
+		if err := json.Unmarshal(bucket.Get([]byte(real)), &record); err != nil {
+			return err
+		}
+		want := sha256.Sum256(content)
+		if record.SHA256 != hex.EncodeToString(want[:]) {
+			t.Fatalf("CLI cached the wrong SHA: %s", record.SHA256)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
 	}
 }
 

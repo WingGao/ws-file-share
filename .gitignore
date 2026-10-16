@@ -1,4 +1,5 @@
 /config.yaml
+/docker-config/
 /certs/
 /dist/
 /.cache/
@@ -6,3 +7,5 @@
 /node_modules/
 *.exe
 *.test
+*.sha256.db
+sha256.kv

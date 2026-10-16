@@ -1,6 +1,7 @@
 package command
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -14,6 +15,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"wsdownloader/internal/config"
@@ -22,7 +24,7 @@ import (
 
 func Run(args []string, out, stderr io.Writer) error {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
-		fmt.Fprintln(out, "WS下载器\n\n用法: ws-downloader <命令> [选项]\n  init    初始化 config.yaml\n  serve   启动 HTTP/WS 服务，TLS 由反向代理处理\n  add     添加本地文件或目录并通过 HTTP API 通知重载\n  list    列出配置中的分享资源\n  remove  移除分享资源并通知重载\n  reload  通过 HTTP API 重载配置\n\n每个命令支持 --help。CLI 可使用同样的管理命令。")
+		fmt.Fprintln(out, "WS下载器\n\n用法: ws-downloader <命令> [选项]\n  init    初始化 config.yaml\n  serve   启动 HTTP/WS 服务，TLS 由反向代理处理\n  add     添加文件或目录，预计算并缓存 SHA-256\n  list    列出配置中的分享资源\n  remove  移除分享资源并通知重载\n  reload  通过 HTTP API 重载配置\n\n每个命令支持 --help。CLI 可使用同样的管理命令。")
 		return nil
 	}
 	name := args[0]
@@ -95,7 +97,8 @@ func Run(args []string, out, stderr io.Writer) error {
 		if err != nil {
 			return err
 		}
-		defer unlock()
+		release := sync.OnceFunc(unlock)
+		defer release()
 		cfg, err := config.Load(absoluteConfig)
 		if err != nil {
 			return err
@@ -137,8 +140,31 @@ func Run(args []string, out, stderr io.Writer) error {
 		if err := config.Save(absoluteConfig, cfg); err != nil {
 			return err
 		}
+		release()
 		if err := json.NewEncoder(out).Encode(resource); err != nil {
 			return err
+		}
+		if name == "add" {
+			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+			defer stop()
+			fmt.Fprintln(stderr, "正在准备文件 SHA-256 校验信息，首次添加大文件可能需要一些时间…")
+			prepared, err := managementRequest(ctx, cfg, *endpoint, resource.ID)
+			if err != nil {
+				if ctx.Err() != nil {
+					return fmt.Errorf("配置已保存，校验准备已取消: %w", ctx.Err())
+				}
+				var networkErr net.Error
+				if !errors.As(err, &networkErr) {
+					return fmt.Errorf("配置已保存，但校验准备失败: %w", err)
+				}
+				fmt.Fprintln(stderr, "未连接到服务，将在本机直接准备校验缓存。")
+				prepared, err = server.PrepareResource(ctx, absoluteConfig, cfg, resource)
+				if err != nil {
+					return fmt.Errorf("配置已保存，但本机校验准备失败: %w", err)
+				}
+			}
+			fmt.Fprintf(stderr, "校验准备完成：%d 个文件，%d 个无法处理的条目。\n", prepared.Files, prepared.Warnings)
+			return nil
 		}
 		if err := notify(cfg, *endpoint, stderr); err != nil {
 			var networkErr net.Error
@@ -177,36 +203,65 @@ func reorderPositionals(args []string) []string {
 }
 
 func notify(cfg config.Config, endpoint string, out io.Writer) error {
+	if _, err := managementRequest(context.Background(), cfg, endpoint, ""); err != nil {
+		return err
+	}
+	fmt.Fprintln(out, "服务端配置已重载。")
+	return nil
+}
+
+func managementRequest(ctx context.Context, cfg config.Config, endpoint, prepareID string) (server.Preparation, error) {
 	if endpoint == "" {
 		endpoint = cfg.AdminURL()
 	}
 	u, err := url.Parse(endpoint)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
-		return errors.New("--server 必须是 HTTP/HTTPS 地址")
+		return server.Preparation{}, errors.New("--server 必须是 HTTP/HTTPS 地址")
 	}
 	u.Path = "/api/reload"
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	defer transport.CloseIdleConnections()
 	client := &http.Client{Transport: transport, Timeout: 15 * time.Second,
 		CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
-	req, err := http.NewRequest(http.MethodPost, u.String(), nil)
+	var bodyReader io.Reader
+	if prepareID != "" {
+		// Hashing large resources may take minutes; Ctrl+C cancels this request.
+		client.Timeout = 0
+		body, err := json.Marshal(map[string]string{"prepare_resource_id": prepareID})
+		if err != nil {
+			return server.Preparation{}, err
+		}
+		bodyReader = bytes.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), bodyReader)
 	if err != nil {
-		return err
+		return server.Preparation{}, err
+	}
+	if prepareID != "" {
+		req.Header.Set("Content-Type", "application/json")
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return err
+		return server.Preparation{}, err
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 	if err != nil {
-		return err
+		return server.Preparation{}, err
 	}
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return server.Preparation{}, fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
-	fmt.Fprintln(out, "服务端配置已重载。")
-	return nil
+	var result struct {
+		Prepared *server.Preparation `json:"prepared"`
+	}
+	if prepareID != "" {
+		if err := json.Unmarshal(body, &result); err != nil || result.Prepared == nil {
+			return server.Preparation{}, errors.New("服务端未返回校验准备结果，请确认服务端与 CLI 均已升级")
+		}
+		return *result.Prepared, nil
+	}
+	return server.Preparation{}, nil
 }
 
 func initialize(path string, out io.Writer) error {

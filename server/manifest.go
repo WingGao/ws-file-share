@@ -2,8 +2,6 @@ package server
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
@@ -53,7 +51,7 @@ func (r contextReader) Read(p []byte) (int, error) {
 
 // Only ancestors, rather than a global visited set, are checked: two aliases
 // of the same directory are both legitimate download entries.
-func buildManifest(ctx context.Context, resource config.Resource, cfg config.Config) (*Manifest, error) {
+func buildManifest(ctx context.Context, resource config.Resource, cfg config.Config, hashes *hashCache) (*Manifest, error) {
 	name := filepath.Base(filepath.Clean(resource.Path))
 	if name == "." || strings.ContainsAny(name, `\/:`) {
 		name = "root"
@@ -76,6 +74,9 @@ func buildManifest(ctx context.Context, resource config.Resource, cfg config.Con
 		info, err := os.Stat(real)
 		if err != nil {
 			return err
+		}
+		if hashes.isCacheFile(info) {
+			return nil
 		}
 		entry := Entry{ID: relative, Path: relative, Size: info.Size(), source: real}
 		if info.IsDir() {
@@ -105,20 +106,11 @@ func buildManifest(ctx context.Context, resource config.Resource, cfg config.Con
 		if !info.Mode().IsRegular() {
 			return fmt.Errorf("不支持普通文件、目录以外的条目")
 		}
-		f, err := os.Open(real)
+		sum, err := hashes.sum(ctx, real, info)
 		if err != nil {
 			return err
 		}
-		h := sha256.New()
-		_, err = io.Copy(h, contextReader{ctx: ctx, r: f})
-		closeErr := f.Close()
-		if err != nil {
-			return err
-		}
-		if closeErr != nil {
-			return closeErr
-		}
-		entry.Kind, entry.SHA256 = "file", hex.EncodeToString(h.Sum(nil))
+		entry.Kind, entry.SHA256 = "file", sum
 		m.Entries = append(m.Entries, entry)
 		m.files[entry.ID] = entry
 		return nil

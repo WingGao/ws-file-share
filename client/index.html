@@ -526,6 +526,38 @@
       .notice:empty {
         display: none;
       }
+      .http-help {
+        margin-bottom: 24px;
+        padding: 20px 24px;
+        border: 1px solid #cfe5da;
+        border-radius: 12px;
+        background: #f1faf5;
+        color: #375c4e;
+        font-size: 13px;
+        line-height: 1.85;
+      }
+      .http-help h2 {
+        margin: 0 0 6px;
+        font-size: 16px;
+      }
+      .http-help p {
+        margin: 0;
+      }
+      .http-help ol {
+        margin: 12px 0;
+        padding-left: 22px;
+      }
+      .http-help code {
+        padding: 2px 5px;
+        border-radius: 4px;
+        background: white;
+        overflow-wrap: anywhere;
+        user-select: all;
+      }
+      .http-help-address {
+        display: block;
+        margin-top: 4px;
+      }
       footer {
         max-width: 1320px;
         margin: 0 auto;
@@ -656,6 +688,40 @@
         <span class="intro-note">Windows · macOS · Linux</span>
       </div>
       <div class="notice" id="compatibility" role="alert"></div>
+      <section
+        class="http-help"
+        id="http-help"
+        aria-labelledby="http-help-title"
+        hidden
+      >
+        <h2 id="http-help-title">HTTP 页面如何启用文件夹保存</h2>
+        <p>
+          请使用桌面 Chrome / Edge。若已能选择保存文件夹，无需重复设置；
+          本机 localhost / 127.0.0.1 通常可以直接使用。
+        </p>
+        <ol>
+          <li>
+            复制对应地址到浏览器地址栏并打开：
+            <span class="http-help-address"
+              >Chrome：<code>chrome://flags/#unsafely-treat-insecure-origin-as-secure</code></span
+            >
+            <span class="http-help-address"
+              >Edge：<code>edge://flags/#unsafely-treat-insecure-origin-as-secure</code></span
+            >
+          </li>
+          <li>
+            找到 <strong>Insecure origins treated as secure</strong>，
+            在输入框中添加当前页面地址：<code id="http-origin"></code>。
+            只填写协议、主机和端口，不带路径或资源 ID。
+          </li>
+          <li>
+            设为 <strong>Enabled（已启用）</strong>，点击
+            <strong>Relaunch（重新启动）</strong> 重启浏览器。
+          </li>
+          <li>重新打开本页面，点击「选择文件夹」并允许读写。</li>
+        </ol>
+        <p>此设置需在每台接收电脑上单独操作，HTTP/WS 传输仍为明文。</p>
+      </section>
       <div class="layout">
         <aside class="card side">
           <p class="section-label">下载设置</p>
@@ -1607,6 +1673,9 @@
 
         function initializeUI() {
           const $ = (id) => document.getElementById(id);
+          const canChooseDirectory =
+            window.isSecureContext &&
+            typeof window.showDirectoryPicker === "function";
           let rpc = null,
             manifest = null,
             root = null,
@@ -1646,7 +1715,7 @@
           };
           const controls = () => {
             $("connect").disabled = busy || loading;
-            $("choose").disabled = busy || !("showDirectoryPicker" in window);
+            $("choose").disabled = busy || !canChooseDirectory;
             $("start").disabled =
               busy || loading || !root || !manifest || selected.size === 0;
             $("pause").disabled = !busy;
@@ -1739,13 +1808,23 @@
               location.host +
               wsPath;
           $("transport-state").textContent =
-            location.protocol === "https:" ? "HTTPS 访问" : "本地访问";
+            location.protocol === "https:"
+              ? "HTTPS 访问"
+              : location.protocol === "http:"
+                ? "HTTP 访问"
+                : "本地访问";
+          $("http-help").hidden =
+            location.protocol !== "http:" || canChooseDirectory;
+          if (location.protocol === "http:")
+            $("http-origin").textContent = location.origin;
           const params = new URLSearchParams(location.search);
           if (params.has("id")) $("resource").value = params.get("id");
           if (params.has("server")) $("server").value = params.get("server");
-          if (!window.isSecureContext || !("showDirectoryPicker" in window))
+          if (!canChooseDirectory)
             $("compatibility").textContent =
-              "请使用桌面 Chrome / Edge，通过 HTTPS 或本机 localhost/127.0.0.1 打开页面，才能选择文件夹并保存文件。";
+              location.protocol === "http:" && !window.isSecureContext
+                ? "当前 HTTP 页面尚不能选择保存文件夹。请使用桌面 Chrome / Edge，按下方步骤添加当前页面地址并重启浏览器。"
+                : "请使用桌面 Chrome / Edge，通过 HTTPS 或本机 localhost/127.0.0.1 打开页面，才能选择文件夹并保存文件。";
           for (const id of ["server", "resource"])
             $(id).addEventListener("input", () => {
               if (busy || loading) return;

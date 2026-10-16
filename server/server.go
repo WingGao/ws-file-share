@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"hash/crc32"
 	"html"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -30,19 +31,33 @@ type App struct {
 	ctx        context.Context
 	cancel     context.CancelFunc
 	reloadMu   sync.Mutex
+	hashes     *hashCache
+	closeOnce  sync.Once
 }
 
 func New(configPath string, cfg config.Config) (*App, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
+	cachePath := hashCachePath(configPath)
+	hashes, err := openHashCache(cachePath)
+	if err != nil {
+		return nil, fmt.Errorf("打开 SHA-256 缓存 %s: %w", cachePath, err)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
-	a := &App{configPath: configPath, ctx: ctx, cancel: cancel}
+	a := &App{configPath: configPath, ctx: ctx, cancel: cancel, hashes: hashes}
 	a.cfg.Store(&cfg)
 	return a, nil
 }
 
-func (a *App) Close() { a.cancel() }
+func (a *App) Close() {
+	a.cancel()
+	a.closeOnce.Do(func() {
+		if err := a.hashes.close(); err != nil {
+			slog.Error("关闭 SHA-256 缓存失败", "error", err)
+		}
+	})
+}
 
 func (a *App) Handler() http.Handler {
 	mux := http.NewServeMux()
@@ -98,9 +113,18 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 
 func (a *App) reload(w http.ResponseWriter, r *http.Request) {
 	a.reloadMu.Lock()
-	defer a.reloadMu.Unlock()
+	unlock := sync.OnceFunc(a.reloadMu.Unlock)
+	defer unlock()
 	if r.Header.Get("Origin") != "" {
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "管理接口不接受浏览器 Origin 请求，请使用本机 CLI"})
+		return
+	}
+	var request struct {
+		PrepareResourceID string `json:"prepare_resource_id"`
+	}
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64*1024))
+	if err := decoder.Decode(&request); err != nil && !errors.Is(err, io.EOF) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "无效的重载请求"})
 		return
 	}
 	cfg, err := config.Load(a.configPath)
@@ -108,13 +132,40 @@ func (a *App) reload(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
+	var prepare *config.Resource
+	if request.PrepareResourceID != "" {
+		for _, resource := range cfg.Resources {
+			if resource.ID == request.PrepareResourceID {
+				prepare = &resource
+				break
+			}
+		}
+		if prepare == nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "需要准备的资源不存在"})
+			return
+		}
+	}
 	old := a.cfg.Load()
 	if cfg.Listen != old.Listen || cfg.AdminListen != old.AdminListen {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "监听地址变化需要重启服务；旧配置继续生效"})
 		return
 	}
 	a.cfg.Store(&cfg)
-	writeJSON(w, http.StatusOK, map[string]any{"status": "reloaded", "resources": len(cfg.Resources)})
+	unlock()
+	result := map[string]any{"status": "reloaded", "resources": len(cfg.Resources)}
+	if prepare != nil {
+		ctx, cancel := context.WithCancel(r.Context())
+		stop := context.AfterFunc(a.ctx, cancel)
+		defer stop()
+		defer cancel()
+		prepared, err := prepareResource(ctx, *prepare, cfg, a.hashes)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "配置已重载，但校验准备失败: " + err.Error()})
+			return
+		}
+		result["prepared"] = prepared
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (a *App) allowedOrigin(r *http.Request, cfg config.Config) bool {
@@ -224,6 +275,7 @@ type channel struct {
 	active   map[string]bool
 	manifest *Manifest
 	listed   bool
+	hashes   *hashCache
 }
 
 func (a *App) serveWS(w http.ResponseWriter, r *http.Request) {
@@ -241,7 +293,7 @@ func (a *App) serveWS(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithCancel(a.ctx)
 	defer cancel()
 	c := &channel{conn: conn, cfg: cfg, ctx: ctx, cancel: cancel, jobs: make(chan request, cfg.PendingRequests),
-		out: make(chan response, cfg.Workers+1), budget: newBudget(cfg.ChannelBytes), active: map[string]bool{}}
+		out: make(chan response, cfg.Workers+1), budget: newBudget(cfg.ChannelBytes), active: map[string]bool{}, hashes: a.hashes}
 	var workers sync.WaitGroup
 	for range cfg.Workers {
 		workers.Go(c.worker)
@@ -356,7 +408,7 @@ func (c *channel) process(req request) response {
 		if resource == nil {
 			return failure(req.RequestID, "not_found", errors.New("资源 ID 不存在"))
 		}
-		m, err := buildManifest(c.ctx, *resource, c.cfg)
+		m, err := buildManifest(c.ctx, *resource, c.cfg, c.hashes)
 		if err != nil {
 			return failure(req.RequestID, "manifest_failed", err)
 		}

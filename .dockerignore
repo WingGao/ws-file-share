@@ -1,0 +1,10 @@
+# Send only prebuilt binaries and runtime inputs.
+*
+!Dockerfile
+!.dockerignore
+!docker-entrypoint.sh
+!config.example.yaml
+!dist/
+!dist/linux-*/
+!dist/linux-*/ws-downloader
+!dist/linux-*/cli

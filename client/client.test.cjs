@@ -296,8 +296,10 @@ test("a corrupted downloaded chunk is rejected and retried using CRC32C", async 
 test("page WS address uses config, falls back to its origin, and permits query overrides", async () => {
   const html = await fs.readFile(path.join(__dirname, "index.html"), "utf8"),
     script = html.match(/<script>([\s\S]*?)<\/script>/)[1];
-  for (const [configured, protocol, search, expected, wsPath = "/ws"] of [
+  for (const [configured, protocol, search, expected, wsPath = "/ws", secure = true, picker = secure] of [
     ["", "http:", "", "ws://page.example.com:8080/ws"],
+    ["", "http:", "?id=example", "ws://page.example.com:8080/ws", "/ws", false],
+    ["", "http:", "", "ws://page.example.com:8080/ws", "/ws", true, false],
     ["", "https:", "", "wss://page.example.com:8080/ws"],
     ["", "https:", "", "wss://page.example.com:8080/download/socket", "/download/socket"],
     ["", "http:", "", "ws://page.example.com:8080/transfer/", "/transfer/"],
@@ -311,10 +313,15 @@ test("page WS address uses config, falls back to its origin, and permits query o
       TextDecoder,
       URL,
       URLSearchParams,
-      location: { protocol, host: "page.example.com:8080", search },
+      location: {
+        protocol,
+        host: "page.example.com:8080",
+        origin: protocol + "//page.example.com:8080",
+        search,
+      },
       window: {
-        isSecureContext: true,
-        showDirectoryPicker() {},
+        isSecureContext: secure,
+        ...(picker ? { showDirectoryPicker() {} } : {}),
         addEventListener() {},
       },
       document: {
@@ -330,6 +337,20 @@ test("page WS address uses config, falls back to its origin, and permits query o
     });
     vm.runInContext(script, context);
     assert.equal(elements.get("server").value, expected);
+    assert.equal(
+      elements.get("http-help").hidden,
+      protocol !== "http:" || (secure && picker),
+    );
+    assert.equal(elements.get("choose").disabled, !secure || !picker);
+    if (protocol === "http:")
+      assert.equal(
+        elements.get("http-origin").textContent,
+        "http://page.example.com:8080",
+      );
+    if (!secure) {
+      assert.match(elements.get("compatibility").textContent, /下方步骤/);
+      assert.equal(elements.get("choose").disabled, true);
+    }
     assert.equal(
       context.WSDownloader.normalizeServer("ws://backend.example.com"),
       "ws://backend.example.com" + wsPath,
