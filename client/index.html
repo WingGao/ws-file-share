@@ -4,6 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="light" />
+    <meta name="ws-url" content="" />
+    <meta name="ws-path" content="/ws" />
     <title>WS下载器</title>
     <style>
       :root {
@@ -839,11 +841,23 @@
         const MiB = 1024 * 1024;
         const encoder = new TextEncoder();
         const decoder = new TextDecoder("utf-8", { fatal: true });
+        const wsPath =
+          (typeof document !== "undefined" &&
+            document.querySelector('meta[name="ws-path"]')?.content) ||
+          "/ws";
         const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-        const hex = (bytes) =>
-          Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
-        const digest = async (bytes) =>
-          hex(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)));
+        const crc32cTable = Uint32Array.from({ length: 256 }, (_, i) => {
+          let crc = i;
+          for (let bit = 0; bit < 8; bit++)
+            crc = (crc >>> 1) ^ (crc & 1 ? 0x82f63b78 : 0);
+          return crc >>> 0;
+        });
+        function crc32c(bytes) {
+          let crc = 0xffffffff;
+          for (const byte of bytes)
+            crc = (crc >>> 8) ^ crc32cTable[(crc ^ byte) & 0xff];
+          return ((crc ^ 0xffffffff) >>> 0).toString(16).padStart(8, "0");
+        }
         const abortError = () => new DOMException("下载已暂停", "AbortError");
         function checkAbort(signal) {
           if (signal?.aborted) throw abortError();
@@ -990,7 +1004,7 @@
             throw new Error(
               "服务地址必须是 WS/WSS 地址，例如 wss://example.com/ws",
             );
-          if (u.pathname === "/" || u.pathname === "") u.pathname = "/ws";
+          if (u.pathname === "/" || u.pathname === "") u.pathname = wsPath;
           return u.href;
         }
 
@@ -1195,7 +1209,7 @@
                     )
                 )
                   throw new Error("收到的分块位置或长度不一致");
-                if ((await digest(result.bytes)) !== result.sha256)
+                if (crc32c(result.bytes) !== result.crc32c)
                   throw new Error("分块校验失败");
                 return result;
               } catch (err) {
@@ -1252,6 +1266,32 @@
           const file = await handle.getFile();
           if (file.size > 32 * MiB) throw new Error("断点记录过大");
           return JSON.parse(await file.text());
+        }
+
+        function recordConflicts(record, entry, manifest) {
+          // The endpoint can change without changing the shared resource. Each
+          // saved chunk is verified, and full-file SHA-256 still gates commit.
+          const fields = [
+            ["format", "wsdownloader-v1", "记录格式"],
+            ["resource_id", manifest.resource_id, "资源 ID"],
+            ["file_id", entry.id, "文件 ID"],
+            ["path", entry.path, "文件路径"],
+            ["size", entry.size, "文件大小"],
+            ["chunk_bytes", manifest.chunk_bytes, "分块大小"],
+          ];
+          const conflicts = fields
+            .filter(([key, value]) => record[key] !== value)
+            .map(
+              ([key, value, label]) =>
+                label + "不一致（断点：" + record[key] + "，当前：" + value + "）",
+            );
+          if (
+            !record.completed ||
+            typeof record.completed !== "object" ||
+            Array.isArray(record.completed)
+          )
+            conflicts.push("已完成分块记录格式无效");
+          return conflicts;
         }
 
         class DownloadManager {
@@ -1315,8 +1355,13 @@
               } catch (err) {
                 if (this.controller.signal.aborted || err.name === "AbortError")
                   throw abortError();
-                this.errors.push({ path: entry.path, message: err.message });
-                this.emit("file-error", { file: entry, message: err.message });
+                const message =
+                  err.name === "TypeError" &&
+                  err.message.includes("Name is not allowed")
+                    ? "浏览器禁止访问此文件名；DLL 等文件类型可能受限。请在服务端将目录打包为 ZIP 后分享，下载后解压。"
+                    : err.message;
+                this.errors.push({ path: entry.path, message });
+                this.emit("file-error", { file: entry, message });
               }
             }
             this.emit("complete", { errors: this.errors });
@@ -1355,21 +1400,15 @@
               );
             }
             if (record) {
-              if (
-                record.format !== "wsdownloader-v1" ||
-                record.server !== this.rpc.server ||
-                record.resource_id !== this.manifest.resource_id ||
-                record.file_id !== entry.id ||
-                record.path !== entry.path ||
-                record.size !== entry.size ||
-                record.chunk_bytes !== chunk ||
-                !record.completed ||
-                typeof record.completed !== "object" ||
-                Array.isArray(record.completed)
-              )
+              const conflicts = recordConflicts(record, entry, this.manifest);
+              if (conflicts.length)
                 throw new Error(
-                  "同级断点记录属于其他任务或分块设置，请先处理 " + recordName,
+                  "断点记录不匹配：" +
+                    conflicts.join("；") +
+                    "。请恢复原设置或选择其他保存目录；已有分块已保留。记录：" +
+                    recordName,
                 );
+              record.server = this.rpc.server;
             } else {
               for (let i = 0; i < count; i++)
                 if (await optionalFile(dir, name + "." + i + "._part"))
@@ -1412,13 +1451,23 @@
               const handle = await optionalFile(dir, name + "." + i + "._part");
               if (handle) {
                 const file = await handle.getFile();
-                if (
-                  file.size === Math.min(chunk, entry.size - i * chunk) &&
-                  (await hashFile(file, signal)) === meta.sha256
-                ) {
-                  ready.add(i);
-                  fileDone += file.size;
-                  continue;
+                if (file.size === Math.min(chunk, entry.size - i * chunk)) {
+                  const checksum = crc32c(
+                    new Uint8Array(await file.arrayBuffer()),
+                  );
+                  checkAbort(signal);
+                  // Verify old SHA-256 records before migrating their saved chunks.
+                  if (
+                    checksum === meta.crc32c ||
+                    (meta.crc32c === undefined &&
+                      typeof meta.sha256 === "string" &&
+                      (await hashFile(file, signal)) === meta.sha256)
+                  ) {
+                    record.completed[i] = { crc32c: checksum, length: file.size };
+                    ready.add(i);
+                    fileDone += file.size;
+                    continue;
+                  }
                 }
               }
               delete record.completed[i];
@@ -1448,7 +1497,7 @@
                   // Serialize record commits so concurrent block writes never lose progress.
                   recordQueue = recordQueue.then(async () => {
                     record.completed[index] = {
-                      sha256: result.sha256,
+                      crc32c: result.crc32c,
                       length: result.length,
                     };
                     await writeFile(recordHandle, JSON.stringify(record));
@@ -1489,7 +1538,7 @@
                 const data = new Uint8Array(await part.arrayBuffer());
                 if (
                   data.byteLength !== Math.min(chunk, entry.size - i * chunk) ||
-                  (await digest(data)) !== record.completed[i]?.sha256
+                  crc32c(data) !== record.completed[i]?.crc32c
                 )
                   throw new Error("合并时分块校验失败：" + i);
                 sha.update(data);
@@ -1531,13 +1580,7 @@
             }
             if (
               !record ||
-              record.format !== "wsdownloader-v1" ||
-              record.server !== this.rpc.server ||
-              record.resource_id !== this.manifest.resource_id ||
-              record.file_id !== entry.id ||
-              record.path !== entry.path ||
-              record.size !== entry.size ||
-              record.chunk_bytes !== this.manifest.chunk_bytes
+              recordConflicts(record, entry, this.manifest).length
             )
               return;
             for (
@@ -1557,7 +1600,7 @@
           DownloadManager,
           SHA256,
           hashFile,
-          digest,
+          crc32c,
           validateManifest,
           normalizeServer,
         });
@@ -1684,11 +1727,17 @@
             }
             controls();
           }
-          if (location.protocol === "https:" || location.protocol === "http:")
+          const configuredServer = document.querySelector(
+            'meta[name="ws-url"]',
+          )?.content;
+          if (configuredServer) $("server").value = configuredServer;
+          else if (
+            location.protocol === "https:" || location.protocol === "http:"
+          )
             $("server").value =
               (location.protocol === "https:" ? "wss://" : "ws://") +
               location.host +
-              "/ws";
+              wsPath;
           $("transport-state").textContent =
             location.protocol === "https:" ? "HTTPS 访问" : "本地访问";
           const params = new URLSearchParams(location.search);

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -32,7 +33,7 @@ func TestCLIInitAddIdempotentAndRemoveOffline(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.ServerURL = "http://127.0.0.1:1"
+	cfg.AdminListen = "127.0.0.1:1"
 	if err := config.Save(path, cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +108,7 @@ func TestCLIReloadOverHTTPWithoutCertificates(t *testing.T) {
 	}))
 	defer s.Close()
 	cfg := config.Default()
-	cfg.ServerURL = s.URL
+	cfg.AdminListen = strings.TrimPrefix(s.URL, "http://")
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	if err := config.Save(path, cfg); err != nil {
 		t.Fatal(err)
@@ -118,5 +119,16 @@ func TestCLIReloadOverHTTPWithoutCertificates(t *testing.T) {
 	}
 	if !called.Load() {
 		t.Fatal("management API was not called")
+	}
+	called.Store(false)
+	cfg.AdminListen = "127.0.0.1:1"
+	if err := config.Save(path, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := Run([]string{"reload", "--config", path, "--server", s.URL}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if !called.Load() {
+		t.Fatal("temporary --server override was not used")
 	}
 }

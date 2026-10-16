@@ -1,6 +1,8 @@
 # WS下载器协议 v1
 
-程序通过 HTTP 提供页面 `/`、健康检查 `/healthz` 与管理接口 `POST /api/reload`；WS 使用 `/ws`。默认监听 `127.0.0.1:8080`。Caddy 等反向代理在入口终止 TLS，对外提供 HTTPS/WSS，再转发到程序的 HTTP/WS。程序不生成、读取或管理证书。文件数据只走 WebSocket。
+下载端口通过 HTTP 提供页面 `/`、健康检查 `/healthz` 和 WS。WS 默认使用 `/ws`，可通过 `ws_path` 配置并重载，新路径不影响已有连接。前端未指定 `client_ws_url` 时，自动使用页面同源的 `ws_path`。下载默认监听 `127.0.0.1:8080`。Caddy 等反向代理在入口终止 TLS，对外提供 HTTPS/WSS，再转发到下载端口的 HTTP/WS。程序不生成、读取或管理证书。文件数据只走 WebSocket。
+
+管理接口 `POST /api/reload` 仅由独立管理端口提供，默认监听 `127.0.0.1:8081`，通过 `admin_listen` 配置且仅允许回环地址。下载端口的 `/api`、`/api/*` 始终返回 404；管理端口不提供页面或 WS，也不接受非回环客户端或带 `Origin` 的请求。CLI 根据 `admin_listen` 自动生成 HTTP 地址连接管理端口，无需配置 `server_url`。更改任一监听地址需重启服务。
 
 代理应保留原始 `Host`（Caddy 对 HTTP 上游默认如此），使浏览器的 HTTPS Origin 与代理转发的 Host 对应。程序不依赖后端连接是否为 TLS 来判断页面 Origin。若代理改写 Host，需在 `allowed_origins` 显式填写页面 origin。
 
@@ -67,11 +69,13 @@ N 字节：UTF-8 JSON 消息头
   "index": 0,
   "offset": 0,
   "length": 4194304,
-  "sha256": "64-hex-digits"
+  "crc32c": "8-hex-digits"
 }
 ```
 
-客户端核验块定位、长度与 SHA-256，写入独立的同级分块文件并成功关闭可写流后，才提交断点并补充下一个请求。不使用额外的逐块业务 ACK。
+`crc32c` 为原始分块数据的 CRC32C（Castagnoli），以固定 8 位小写十六进制字符串表示，不带 `0x`。例如 ASCII `123456789` 的校验值为 `e3069283`。此字段替代原分块消息头中的 `sha256`，服务端与页面需同步更新；目录树中的整文件 `sha256` 保持不变。
+
+客户端核验块定位、长度与 CRC32C，写入独立的同级分块文件并成功关闭可写流后，才提交含 `crc32c`、`length` 的断点并补充下一个请求。续传与合并时重新计算分块 CRC32C，整文件仍使用 SHA-256 校验。旧版断点中的分块 SHA-256 经核验后转换为 CRC32C。不使用额外的逐块业务 ACK。
 
 ## 容量与错误
 

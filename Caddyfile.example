@@ -1,4 +1,0 @@
-# 将域名替换为实际域名，证书申请与续期由 Caddy 负责。
-downloads.example.com {
-	reverse_proxy 127.0.0.1:8080
-}

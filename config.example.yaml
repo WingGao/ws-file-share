@@ -1,6 +1,11 @@
 listen: "127.0.0.1:8080"
-# CLI 默认直连本机管理接口；也可填写反向代理的 HTTPS 地址。
-server_url: "http://127.0.0.1:8080"
+# 管理接口单独监听本机回环地址
+admin_listen: "127.0.0.1:8081"
+# 后端 WebSocket 接口路径，支持 reload。
+ws_path: "/ws"
+# 前端默认连接的 WS/WSS 地址，例如 wss://downloads.example.com/ws。
+# 留空时使用页面同源地址；只填写主机时自动补上 ws_path。
+client_ws_url: ""
 chunk_bytes: 4194304
 channel_bytes: 33554432
 client_concurrency: 8

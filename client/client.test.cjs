@@ -210,9 +210,12 @@ before(async () => {
   configPath = path.join(base, "config.yaml");
   command(["init", "--config", configPath]);
   const port = await freePort();
+  let adminPort = await freePort();
+  while (adminPort === port) adminPort = await freePort();
   serverURL = "http://127.0.0.1:" + port;
   let yaml = await fs.readFile(configPath, "utf8");
   yaml = yaml.replaceAll("127.0.0.1:8080", "127.0.0.1:" + port);
+  yaml = yaml.replaceAll("127.0.0.1:8081", "127.0.0.1:" + adminPort);
   await fs.writeFile(configPath, yaml);
   source = path.join(base, "资料");
   await fs.mkdir(path.join(source, "空目录"), { recursive: true });
@@ -236,12 +239,101 @@ after(async () => {
   if (base) await fs.rm(base, { recursive: true, force: true });
 });
 
+test("CLI management uses the separate admin port and the download port rejects API calls", async () => {
+  const response = await fetch(serverURL + "/api/reload", { method: "POST" });
+  assert.equal(response.status, 404);
+  await response.body.cancel();
+  assert.match(command(["reload", "--config", configPath]), /已重载/);
+  const filePath = path.join(base, "management-test.txt");
+  await fs.writeFile(filePath, "management test");
+  const added = JSON.parse(command(["add", filePath, "--config", configPath]));
+  assert(JSON.parse(command(["list", "--config", configPath])).some((r) => r.id === added.id));
+  command(["remove", added.id, "--config", configPath]);
+  assert.equal(JSON.parse(command(["list", "--config", configPath])).length, 1);
+});
+
 test("incremental SHA-256 agrees with native crypto across block boundaries", () => {
   for (const length of [0, 1, 55, 56, 63, 64, 65, 127, 128, 129, MiB + 9]) {
     const bytes = crypto.randomBytes(length),
       sha = new core.SHA256();
     for (let i = 0; i < length; i += 37) sha.update(bytes.subarray(i, i + 37));
     assert.equal(sha.finish(), sum(bytes));
+  }
+});
+
+test("CRC32C matches standard vectors, including leading zeros and byte slices", () => {
+  for (const [bytes, expected] of [
+    [Buffer.alloc(0), "00000000"],
+    [Buffer.from("123456789"), "e3069283"],
+    [Buffer.alloc(32), "8a9136aa"],
+    [Buffer.alloc(32, 0xff), "62a8ab43"],
+    [Buffer.from("x123456789y").subarray(1, 10), "e3069283"],
+  ])
+    assert.equal(core.crc32c(bytes), expected);
+});
+
+test("a corrupted downloaded chunk is rejected and retried using CRC32C", async () => {
+  const rpc = await rpcFor(),
+    file = rpc.manifest.entries.find((e) => e.size > MiB),
+    request = rpc.request.bind(rpc);
+  let requests = 0;
+  rpc.request = async (payload) => {
+    const result = await request(payload);
+    if (payload.type === "block" && ++requests === 1) result.bytes[0] ^= 1;
+    return result;
+  };
+  try {
+    const result = await rpc.block(file, 0);
+    assert.equal(requests, 2);
+    assert.match(result.crc32c, /^[a-f0-9]{8}$/);
+    assert.equal(result.sha256, undefined);
+    assert.deepEqual(Buffer.from(result.bytes), sourceBytes.subarray(0, 4 * MiB));
+  } finally {
+    rpc.close();
+  }
+});
+
+test("page WS address uses config, falls back to its origin, and permits query overrides", async () => {
+  const html = await fs.readFile(path.join(__dirname, "index.html"), "utf8"),
+    script = html.match(/<script>([\s\S]*?)<\/script>/)[1];
+  for (const [configured, protocol, search, expected, wsPath = "/ws"] of [
+    ["", "http:", "", "ws://page.example.com:8080/ws"],
+    ["", "https:", "", "wss://page.example.com:8080/ws"],
+    ["", "https:", "", "wss://page.example.com:8080/download/socket", "/download/socket"],
+    ["", "http:", "", "ws://page.example.com:8080/transfer/", "/transfer/"],
+    ["wss://downloads.example.com/custom/ws", "https:", "", "wss://downloads.example.com/custom/ws"],
+    ["ws://127.0.0.1:9000", "http:", "", "ws://127.0.0.1:9000"],
+    ["wss://configured.example.com/ws", "https:", "?server=wss%3A%2F%2Foverride.example.com%2Fws", "wss://override.example.com/ws"],
+  ]) {
+    const elements = new Map();
+    const context = vm.createContext({
+      TextEncoder,
+      TextDecoder,
+      URL,
+      URLSearchParams,
+      location: { protocol, host: "page.example.com:8080", search },
+      window: {
+        isSecureContext: true,
+        showDirectoryPicker() {},
+        addEventListener() {},
+      },
+      document: {
+        querySelector: (selector) => ({
+          content: selector.includes("ws-path") ? wsPath : configured,
+        }),
+        getElementById(id) {
+          if (!elements.has(id))
+            elements.set(id, { value: "", addEventListener() {} });
+          return elements.get(id);
+        },
+      },
+    });
+    vm.runInContext(script, context);
+    assert.equal(elements.get("server").value, expected);
+    assert.equal(
+      context.WSDownloader.normalizeServer("ws://backend.example.com"),
+      "ws://backend.example.com" + wsPath,
+    );
   }
 });
 
@@ -296,7 +388,7 @@ test("directory download, unicode, hidden files, empty directories, cleanup and 
   }
 });
 
-test("pause persists sibling chunks; restart reuses them and downloads only missing chunks", async () => {
+test("pause persists sibling chunks and reuses them after the WS endpoint changes", async () => {
   const root = await destination(),
     rpc = await rpcFor(),
     file = rpc.manifest.entries.find((e) => e.size > MiB);
@@ -317,6 +409,13 @@ test("pause persists sibling chunks; restart reuses them and downloads only miss
     record = JSON.parse(await fs.readFile(recordPath, "utf8"));
   assert.equal(Object.keys(record.completed).length, 1);
   assert.equal(
+    record.completed[0].crc32c,
+    core.crc32c(sourceBytes.subarray(0, 4 * MiB)),
+  );
+  assert.equal(record.completed[0].sha256, undefined);
+  record.server = "wss://previous.example.com/old/socket";
+  await fs.writeFile(recordPath, JSON.stringify(record));
+  assert.equal(
     (await fs.stat(path.join(root.path, "资料", "数据.bin.0._part"))).isFile(),
     true,
   );
@@ -330,6 +429,143 @@ test("pause persists sibling chunks; restart reuses them and downloads only miss
   try {
     const result = await run(resumed, root, { concurrency: 1 });
     assert.equal(result.result.errors.length, 0);
+    assert.equal(requests, 3);
+    assert.deepEqual(
+      await fs.readFile(path.join(root.path, "资料", "数据.bin")),
+      sourceBytes,
+    );
+  } finally {
+    resumed.close();
+  }
+});
+
+test("incompatible resume records report the conflicting fields and preserve all artifacts", async () => {
+  const root = await destination(),
+    rpc = await rpcFor(),
+    file = rpc.manifest.entries.find((e) => e.size > MiB),
+    directory = path.join(root.path, "资料"),
+    partPath = path.join(directory, "数据.bin.0._part"),
+    recordPath = path.join(directory, "数据.bin._part.json"),
+    part = sourceBytes.subarray(0, 4 * MiB);
+  await fs.mkdir(directory);
+  await fs.writeFile(partPath, part);
+  const original = {
+    format: "wsdownloader-v1",
+    server: rpc.server,
+    resource_id: rpc.manifest.resource_id,
+    file_id: file.id,
+    path: file.path,
+    size: file.size,
+    chunk_bytes: rpc.manifest.chunk_bytes,
+    completed: { 0: { crc32c: core.crc32c(part), length: part.length } },
+  };
+  let requests = 0;
+  rpc.block = () => {
+    requests++;
+    throw new Error("unexpected block request");
+  };
+  try {
+    for (const [field, value, reason] of [
+      ["format", "unknown", "记录格式"],
+      ["resource_id", "different-resource", "资源 ID"],
+      ["file_id", "different-file", "文件 ID"],
+      ["path", "different/path", "文件路径"],
+      ["size", file.size + 1, "文件大小"],
+      ["chunk_bytes", 2 * MiB, "分块大小"],
+      ["completed", null, "已完成分块记录格式无效"],
+    ]) {
+      const recordText = JSON.stringify({ ...original, [field]: value });
+      await fs.writeFile(recordPath, recordText);
+      const manager = new core.DownloadManager({
+        rpc, root, manifest: rpc.manifest,
+      });
+      const result = await manager.run(new Set([file.id]));
+      assert.equal(result.errors.length, 1);
+      assert(result.errors[0].message.includes(reason), result.errors[0].message);
+      if (field === "chunk_bytes") {
+        assert(result.errors[0].message.includes(String(2 * MiB)));
+        assert(result.errors[0].message.includes(String(4 * MiB)));
+      }
+      assert.equal(await fs.readFile(recordPath, "utf8"), recordText);
+    }
+    assert.equal(requests, 0);
+    assert.deepEqual(await fs.readFile(partPath), part);
+    await assert.rejects(fs.access(path.join(directory, "数据.bin")), {
+      code: "ENOENT",
+    });
+  } finally {
+    rpc.close();
+  }
+});
+
+test("browser-rejected DLL names report a ZIP workaround before any chunk is downloaded", async () => {
+  const root = await destination(),
+    rpc = await rpcFor(),
+    file = rpc.manifest.entries.find((e) => e.size > MiB),
+    entry = { ...file, id: "资料/steam_api64.dll", path: "资料/steam_api64.dll" },
+    real = DiskDirectory.prototype.getFileHandle;
+  DiskDirectory.prototype.getFileHandle = function (name, options) {
+    if (name.endsWith(".dll"))
+      throw new TypeError(
+        "Failed to execute 'getFileHandle': Name is not allowed.",
+      );
+    return real.call(this, name, options);
+  };
+  let requests = 0;
+  rpc.block = () => {
+    requests++;
+    throw new Error("unexpected block request");
+  };
+  try {
+    const manager = new core.DownloadManager({
+      rpc,
+      root,
+      manifest: { ...rpc.manifest, entries: [entry] },
+    });
+    const result = await manager.run(new Set([entry.id]));
+    assert.equal(result.errors.length, 1);
+    assert.match(result.errors[0].message, /浏览器禁止.*ZIP/);
+    assert.equal(requests, 0);
+  } finally {
+    DiskDirectory.prototype.getFileHandle = real;
+    rpc.close();
+  }
+});
+
+test("legacy SHA-256 chunk records resume without downloading valid chunks again", async () => {
+  const root = await destination(),
+    rpc = await rpcFor(),
+    file = rpc.manifest.entries.find((e) => e.size > MiB);
+  let manager;
+  manager = new core.DownloadManager({
+    rpc,
+    root,
+    manifest: rpc.manifest,
+    concurrency: 1,
+    onEvent: (event) => {
+      if (event.type === "progress") manager.pause();
+    },
+  });
+  await assert.rejects(() => manager.run(new Set([file.id])), {
+    name: "AbortError",
+  });
+  const recordPath = path.join(root.path, "资料", "数据.bin._part.json"),
+    record = JSON.parse(await fs.readFile(recordPath, "utf8"));
+  record.completed[0] = {
+    sha256: sum(sourceBytes.subarray(0, 4 * MiB)),
+    length: 4 * MiB,
+  };
+  await fs.writeFile(recordPath, JSON.stringify(record));
+  const resumed = await rpcFor(),
+    block = resumed.block.bind(resumed);
+  let requests = 0;
+  resumed.block = (...args) => {
+    requests++;
+    return block(...args);
+  };
+  try {
+    const { result } = await run(resumed, root, { concurrency: 1 });
+    assert.equal(result.errors.length, 0);
     assert.equal(requests, 3);
     assert.deepEqual(
       await fs.readFile(path.join(root.path, "资料", "数据.bin")),
@@ -433,6 +669,10 @@ test("a committed final file cleans up owned remnants after an interrupted clean
   });
   const target = path.join(root.path, "资料", "数据.bin");
   await fs.writeFile(target, sourceBytes);
+  const recordPath = target + "._part.json",
+    record = JSON.parse(await fs.readFile(recordPath, "utf8"));
+  record.server = "wss://previous.example.com/old/socket";
+  await fs.writeFile(recordPath, JSON.stringify(record));
   const resumed = await rpcFor();
   try {
     const result = await run(resumed, root);
@@ -491,6 +731,38 @@ test("failure during merge preserves original target and committed parts", async
     assert.equal(second.result.errors.length, 0);
     assert.equal(requests, 0);
     assert.deepEqual(await fs.readFile(target), sourceBytes);
+  } finally {
+    rpc.close();
+  }
+});
+
+test("CRC32C catches chunk corruption during merge and preserves the original target", async () => {
+  const root = await destination(),
+    rpc = await rpcFor(),
+    file = rpc.manifest.entries.find((e) => e.size > MiB);
+  await fs.mkdir(path.join(root.path, "资料"));
+  const target = path.join(root.path, "资料", "数据.bin");
+  await fs.writeFile(target, "original");
+  const manager = new core.DownloadManager({
+    rpc,
+    root,
+    manifest: rpc.manifest,
+    overwrite: true,
+    onEvent: (event) => {
+      if (event.type === "merging")
+        require("node:fs").writeFileSync(
+          target + ".0._part",
+          Buffer.alloc(4 * MiB, 17),
+        );
+    },
+  });
+  try {
+    const result = await manager.run(new Set([file.id]));
+    assert.equal(result.errors.length, 1);
+    assert.match(result.errors[0].message, /合并时分块校验失败/);
+    assert.equal(await fs.readFile(target, "utf8"), "original");
+    await fs.access(target + ".0._part");
+    await fs.access(target + "._part.json");
   } finally {
     rpc.close();
   }

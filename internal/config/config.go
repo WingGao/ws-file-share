@@ -7,9 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 
 	"go.yaml.in/yaml/v3"
@@ -24,7 +28,9 @@ type Resource struct {
 
 type Config struct {
 	Listen           string     `yaml:"listen"`
-	ServerURL        string     `yaml:"server_url"`
+	AdminListen      string     `yaml:"admin_listen"`
+	ClientWSURL      string     `yaml:"client_ws_url"`
+	WSPath           string     `yaml:"ws_path"`
 	ChunkBytes       int64      `yaml:"chunk_bytes"`
 	ChannelBytes     int64      `yaml:"channel_bytes"`
 	ClientConcurrent int        `yaml:"client_concurrency"`
@@ -36,7 +42,8 @@ type Config struct {
 
 func Default() Config {
 	return Config{
-		Listen: "127.0.0.1:8080", ServerURL: "http://127.0.0.1:8080",
+		Listen: "127.0.0.1:8080", AdminListen: "127.0.0.1:8081",
+		WSPath:     "/ws",
 		ChunkBytes: 4 * MiB, ChannelBytes: 32 * MiB,
 		ClientConcurrent: 8, Workers: 8, PendingRequests: 64,
 		AllowedOrigins: []string{}, Resources: []Resource{},
@@ -44,12 +51,29 @@ func Default() Config {
 }
 
 func (c Config) Validate() error {
-	u, err := url.Parse(c.ServerURL)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
-		return errors.New("server_url 必须是无路径的 HTTP/HTTPS 地址")
-	}
 	if c.Listen == "" {
 		return errors.New("listen 不能为空")
+	}
+	adminHost, adminPort, err := net.SplitHostPort(c.AdminListen)
+	if err != nil || (adminHost != "localhost" && !net.ParseIP(adminHost).IsLoopback()) {
+		return errors.New("admin_listen 必须使用本机回环地址，例如 127.0.0.1:8081、localhost:8081 或 [::1]:8081")
+	}
+	port, err := strconv.Atoi(adminPort)
+	if err != nil || port < 0 || port > 65535 {
+		return errors.New("admin_listen 的端口必须在 0～65535 内")
+	}
+	if c.Listen == c.AdminListen && port != 0 {
+		return errors.New("listen 与 admin_listen 必须使用不同端口")
+	}
+	if c.ClientWSURL != "" {
+		u, err := url.Parse(c.ClientWSURL)
+		if err != nil || (u.Scheme != "ws" && u.Scheme != "wss") || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.Opaque != "" {
+			return errors.New("client_ws_url 必须是 WS/WSS 地址，不能包含用户名、密码、查询参数或片段")
+		}
+	}
+	wsURL, err := url.Parse(c.WSPath)
+	if err != nil || !strings.HasPrefix(c.WSPath, "/") || wsURL.Path != c.WSPath || strings.Contains(c.WSPath, `\`) || path.Clean(c.WSPath) != strings.TrimSuffix(c.WSPath, "/") || c.WSPath == "/" || c.WSPath == "/healthz" || c.WSPath == "/api" || strings.HasPrefix(c.WSPath, "/api/") {
+		return errors.New("ws_path 必须是以 / 开头的规范路径，不能包含查询参数、片段或与内置接口冲突")
 	}
 	if c.ChunkBytes < 1 || c.ChunkBytes > 64*MiB || c.ChannelBytes < c.ChunkBytes || c.ChannelBytes > 1024*MiB {
 		return errors.New("chunk_bytes 须在 1～64 MiB 内，channel_bytes 须不小于块大小且不超过 1 GiB")
@@ -73,6 +97,16 @@ func (c Config) Validate() error {
 	return nil
 }
 
+func (c Config) AdminAddress() string {
+	host, port, _ := net.SplitHostPort(c.AdminListen)
+	if host == "localhost" {
+		host = "127.0.0.1"
+	}
+	return net.JoinHostPort(host, port)
+}
+
+func (c Config) AdminURL() string { return "http://" + c.AdminAddress() }
+
 func ID(absolutePath string) string {
 	sum := md5.Sum([]byte(filepath.Clean(absolutePath)))
 	return hex.EncodeToString(sum[:])
@@ -86,7 +120,14 @@ func Load(path string) (Config, error) {
 	}
 	d := yaml.NewDecoder(bytes.NewReader(b))
 	d.KnownFields(true)
-	if err = d.Decode(&c); err != nil {
+	// Accept but ignore the obsolete endpoint. Saving removes it from the YAML.
+	document := struct {
+		Config          `yaml:",inline"`
+		LegacyServerURL any `yaml:"server_url"`
+	}{Config: c}
+	err = d.Decode(&document)
+	c = document.Config
+	if err != nil {
 		return c, fmt.Errorf("解析配置: %w", err)
 	}
 	var extra any

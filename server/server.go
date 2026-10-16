@@ -1,13 +1,16 @@
 package server
 
 import (
+	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/binary"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"hash/crc32"
+	"html"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -48,14 +51,43 @@ func (a *App) Handler() http.Handler {
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "no-referrer")
-		_, _ = w.Write(client.HTML)
+		cfg := a.cfg.Load()
+		page := bytes.Replace(client.HTML, []byte(`<meta name="ws-url" content="" />`),
+			[]byte(`<meta name="ws-url" content="`+html.EscapeString(cfg.ClientWSURL)+`" />`), 1)
+		page = bytes.Replace(page, []byte(`<meta name="ws-path" content="/ws" />`),
+			[]byte(`<meta name="ws-path" content="`+html.EscapeString(cfg.WSPath)+`" />`), 1)
+		_, _ = w.Write(page)
 	})
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"name": "WS下载器", "status": "ok"})
 	})
+	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != a.cfg.Load().WSPath {
+			http.NotFound(w, r)
+			return
+		}
+		a.serveWS(w, r)
+	})
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api" || strings.HasPrefix(r.URL.Path, "/api/") {
+			http.NotFound(w, r)
+			return
+		}
+		mux.ServeHTTP(w, r)
+	})
+}
+
+func (a *App) AdminHandler() http.Handler {
+	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/reload", a.reload)
-	mux.HandleFunc("GET /ws", a.serveWS)
-	return mux
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil || !net.ParseIP(host).IsLoopback() {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "管理接口仅允许本机调用"})
+			return
+		}
+		mux.ServeHTTP(w, r)
+	})
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {
@@ -67,8 +99,8 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 func (a *App) reload(w http.ResponseWriter, r *http.Request) {
 	a.reloadMu.Lock()
 	defer a.reloadMu.Unlock()
-	if !a.allowedOrigin(r, *a.cfg.Load()) {
-		writeJSON(w, http.StatusForbidden, map[string]string{"error": "不允许的 Origin"})
+	if r.Header.Get("Origin") != "" {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "管理接口不接受浏览器 Origin 请求，请使用本机 CLI"})
 		return
 	}
 	cfg, err := config.Load(a.configPath)
@@ -77,7 +109,7 @@ func (a *App) reload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	old := a.cfg.Load()
-	if cfg.Listen != old.Listen {
+	if cfg.Listen != old.Listen || cfg.AdminListen != old.AdminListen {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "监听地址变化需要重启服务；旧配置继续生效"})
 		return
 	}
@@ -87,7 +119,7 @@ func (a *App) reload(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) allowedOrigin(r *http.Request, cfg config.Config) bool {
 	origin := r.Header.Get("Origin")
-	if origin == "" { // Non-browser clients, including the management CLI.
+	if origin == "" { // Non-browser WebSocket clients.
 		return true
 	}
 	u, err := url.Parse(origin)
@@ -106,26 +138,50 @@ func (a *App) allowedOrigin(r *http.Request, cfg config.Config) bool {
 
 func (a *App) Serve(ctx context.Context) error {
 	cfg := a.cfg.Load()
+	listener, err := net.Listen("tcp", cfg.Listen)
+	if err != nil {
+		return fmt.Errorf("监听下载端口: %w", err)
+	}
+	defer listener.Close()
+	adminAddress := cfg.AdminAddress()
+	adminListener, err := net.Listen("tcp", adminAddress)
+	if err != nil {
+		return fmt.Errorf("监听管理端口: %w", err)
+	}
+	defer adminListener.Close()
 	httpServer := &http.Server{Addr: cfg.Listen, Handler: a.Handler(), ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout: 60 * time.Second, MaxHeaderBytes: 64 * 1024}
-	done := make(chan struct{})
+	adminServer := &http.Server{Addr: adminAddress, Handler: a.AdminHandler(), ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout: 60 * time.Second, MaxHeaderBytes: 64 * 1024}
+	errorsCh := make(chan error, 2)
 	go func() {
-		select {
-		case <-ctx.Done():
-			a.Close() // http.Shutdown alone doesn't close upgraded connections.
-			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			_ = httpServer.Shutdown(shutdownCtx)
-		case <-done:
-		}
+		errorsCh <- fmt.Errorf("下载服务: %w", httpServer.Serve(listener))
 	}()
-	slog.Info("WS下载器启动", "listen", cfg.Listen, "url", cfg.ServerURL, "resources", len(cfg.Resources))
-	err := httpServer.ListenAndServe()
-	close(done)
-	if errors.Is(err, http.ErrServerClosed) {
-		return nil
+	go func() {
+		errorsCh <- fmt.Errorf("管理服务: %w", adminServer.Serve(adminListener))
+	}()
+	slog.Info("WS下载器启动", "listen", listener.Addr().String(), "admin_listen", adminListener.Addr().String(), "resources", len(cfg.Resources))
+	select {
+	case err = <-errorsCh:
+	case <-ctx.Done():
+	case <-a.ctx.Done():
 	}
-	return err
+	a.Close() // http.Shutdown alone doesn't close upgraded connections.
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var shutdown sync.WaitGroup
+	for _, srv := range []*http.Server{httpServer, adminServer} {
+		shutdown.Go(func() {
+			if err := srv.Shutdown(shutdownCtx); err != nil {
+				_ = srv.Close()
+			}
+		})
+	}
+	shutdown.Wait()
+	if err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return err
+	}
+	return nil
 }
 
 type request struct {
@@ -136,6 +192,8 @@ type request struct {
 	Index      int64  `json:"index"`
 }
 
+var blockCRCTable = crc32.MakeTable(crc32.Castagnoli)
+
 type blockHeader struct {
 	Type      string `json:"type"`
 	RequestID string `json:"request_id"`
@@ -143,7 +201,7 @@ type blockHeader struct {
 	Index     int64  `json:"index"`
 	Offset    int64  `json:"offset"`
 	Length    int64  `json:"length"`
-	SHA256    string `json:"sha256"`
+	CRC32C    string `json:"crc32c"`
 }
 
 type response struct {
@@ -338,9 +396,8 @@ func (c *channel) process(req request) response {
 		c.budget.release(n)
 		return failure(req.RequestID, "read_failed", err)
 	}
-	sum := sha256.Sum256(data)
 	return response{id: req.RequestID, bytes: n, data: data, header: &blockHeader{Type: "block", RequestID: req.RequestID,
-		FileID: file.ID, Index: req.Index, Offset: offset, Length: n, SHA256: hex.EncodeToString(sum[:])}}
+		FileID: file.ID, Index: req.Index, Offset: offset, Length: n, CRC32C: fmt.Sprintf("%08x", crc32.Checksum(data, blockCRCTable))}}
 }
 
 func (c *channel) writeLoop() {

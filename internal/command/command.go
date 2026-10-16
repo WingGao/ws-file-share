@@ -31,7 +31,7 @@ func Run(args []string, out, stderr io.Writer) error {
 	configPath := f.String("config", "config.yaml", "配置文件路径")
 	var endpoint *string
 	if name == "add" || name == "remove" || name == "reload" {
-		endpoint = f.String("server", "", "HTTP/HTTPS 管理地址，默认使用配置的 server_url")
+		endpoint = f.String("server", "", "临时覆盖管理地址，默认根据 admin_listen 生成本机 HTTP 地址")
 	}
 	// Accept both `add --config path dir` and the more natural `add dir --config path`.
 	if name == "add" || name == "remove" {
@@ -178,7 +178,7 @@ func reorderPositionals(args []string) []string {
 
 func notify(cfg config.Config, endpoint string, out io.Writer) error {
 	if endpoint == "" {
-		endpoint = cfg.ServerURL
+		endpoint = cfg.AdminURL()
 	}
 	u, err := url.Parse(endpoint)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
@@ -224,6 +224,6 @@ func initialize(path string, out io.Writer) error {
 	if err := config.Save(path, cfg); err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "WS下载器初始化完成。\n配置: %s\n本地页面: %s\n公网 HTTPS/WSS 由 Caddy 等反向代理提供。\n", path, cfg.ServerURL)
+	fmt.Fprintf(out, "WS下载器初始化完成。\n配置: %s\n本地页面: http://%s\n本机管理接口: %s\n公网 HTTPS/WSS 由 Caddy 等反向代理提供。\n", path, cfg.Listen, cfg.AdminURL())
 	return nil
 }
